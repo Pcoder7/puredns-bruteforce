@@ -78,11 +78,14 @@ jobs:
       - name: Build matrix JSON
         id: set_matrix
         run: |
-          doms=$(jq -R -s -c 'split("\n")[:-1]' domains.txt)
-          chs=$(ls chunks | jq -R -s -c 'split("\n")[:-1]')
+          doms=$(jq -R -s -c 'split("")[:-1]' domains.txt)
+          chs=$(ls chunks | jq -R -s -c 'split("")[:-1]')
           matrix=$(jq -n --argjson D "$doms" --argjson C "$chs" \
             '[ $D[] as $d | $C[] as $c | {domain:$d,chunk:"chunks/\($c)"} ]')
-          echo "matrix=$matrix" >> $GITHUB_OUTPUT
+          # Use multi-line output for GitHub Actions
+          echo "matrix<<EOF" >> $GITHUB_OUTPUT
+          echo "$matrix" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
   bruteforce:
     needs: prepare_matrix
