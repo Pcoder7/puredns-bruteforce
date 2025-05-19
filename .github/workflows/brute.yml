@@ -8,7 +8,7 @@ permissions:
 
 env:
   LINES_PER_CHUNK: 500000
-  WORDLIST_PATH: wordlist.txt
+  COMBINED_WORDLIST: "best-wordlist-9996122_filter.txt"
 
 jobs:
   prepare_matrix:
@@ -21,23 +21,63 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install massdns & puredns
+      - name: Install prerequisites
         run: |
-          sudo apt install jq
+          sudo apt-get update -qq
+          sudo apt-get install -y git make gcc dos2unix
+          # go is provided by setup-go
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Install massdns & PureDNS
+        run: |
           git clone https://github.com/blechschmidt/massdns.git
           cd massdns && make && sudo make install && cd ..
           go install github.com/d3mondev/puredns/v2@latest
+          echo "$HOME/go/bin" >> $GITHUB_PATH
 
-      - name: Split wordlist into chunks
+      - name: Install anew
+        run: |
+          go install github.com/tomnomnom/anew@latest
+          echo "$HOME/go/bin" >> $GITHUB_PATH
+
+      - name: Fetch wordlists
+        run: |
+          wget -qO best-wordlist-9996122.txt \
+            https://github.com/Pcoder7/All-In-One-DNS-Wordlist/raw/refs/heads/main/best-wordlist-9996122.txt
+          wget -qO seclistes-dns-7110368.txt \
+            https://github.com/Pcoder7/All-In-One-DNS-Wordlist/raw/refs/heads/main/seclistes-dns-7110368.txt
+
+      - name: Build filter_wordlist tool
+        run: |
+          
+          go build -o filter_wordlist filter_wordlist.go
+          chmod +x filter_wordlist
+          dos2unix filter_wordlist
+
+      - name: Filter and combine wordlists
+        run: |
+          ./filter_wordlist best-wordlist-9996122.txt \
+            > best-wordlist-9996122_filter.txt
+          ./filter_wordlist seclistes-dns-7110368.txt \
+            > seclistes-dns-7110368_filter.txt
+          cat seclistes-dns-7110368_filter.txt \
+            | anew -q best-wordlist-9996122_filter.txt \
+            > added-lines.txt
+          wc -l added-lines.txt 
+
+      - name: Split combined wordlist into chunks
         run: |
           mkdir -p chunks
-          split -l $LINES_PER_CHUNK "$WORDLIST_PATH" chunks/chunk_
+          split -l $LINES_PER_CHUNK "$COMBINED_WORDLIST" chunks/chunk_
           echo "Generated $(ls chunks | wc -l) chunks"
 
       - name: Build matrix JSON
         id: set_matrix
         run: |
-          
           doms=$(jq -R -s -c 'split("\n")[:-1]' domains.txt)
           chs=$(ls chunks | jq -R -s -c 'split("\n")[:-1]')
           matrix=$(jq -n --argjson D "$doms" --argjson C "$chs" \
@@ -48,7 +88,7 @@ jobs:
     needs: prepare_matrix
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false      # <— prevents one failure from canceling the rest
+      fail-fast: false
       matrix:
         pair: ${{ fromJson(needs.prepare_matrix.outputs.matrix) }}
     steps:
@@ -58,12 +98,9 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          go-version: '1.22'
 
-      - name: Export Go binary path
-        run: echo "$HOME/go/bin" >> $GITHUB_PATH
-      
-      - name: Install massdns & puredns
+      - name: Install massdns & PureDNS
         run: |
           git clone https://github.com/blechschmidt/massdns.git
           cd massdns && make && sudo make install && cd ..
@@ -81,9 +118,9 @@ jobs:
           CHUNK="${{ matrix.pair.chunk }}"
           OUT="results/$D/$(basename "$CHUNK").txt"
           echo "⇢ Bruteforce $D with $CHUNK"
-          puredns bruteforce "$CHUNK" "$D" \
-            -r resolvers.txt --wildcard-tests 50 --write "$OUT" --write-wildcards wildcards.txt --write-massdns massdns.txt 
-           
+          puredns bruteforce -d "$D" -w "$CHUNK" \
+            --resolvers-trusted resolvers-trusted.txt \
+            --write "$OUT" --write-wildcards wildcards.txt --write-massdns massdns.txt
 
       - name: Commit & push results
         run: |
