@@ -1,1 +1,97 @@
+name: Parallel PureDNS Bruteforce
 
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  LINES_PER_CHUNK: 500000
+  WORDLIST_PATH: wordlist.txt
+
+jobs:
+  prepare_matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set_matrix.outputs.matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Install massdns & puredns
+        run: |
+          sudo apt install jq
+          git clone https://github.com/blechschmidt/massdns.git
+          cd massdns && make && sudo make install && cd ..
+          go install github.com/d3mondev/puredns/v2@latest
+
+      - name: Split wordlist into chunks
+        run: |
+          mkdir -p chunks
+          split -l $LINES_PER_CHUNK "$WORDLIST_PATH" chunks/chunk_
+          echo "Generated $(ls chunks | wc -l) chunks"
+
+      - name: Build matrix JSON
+        id: set_matrix
+        run: |
+          
+          doms=$(jq -R -s -c 'split("\n")[:-1]' domains.txt)
+          chs=$(ls chunks | jq -R -s -c 'split("\n")[:-1]')
+          matrix=$(jq -n --argjson D "$doms" --argjson C "$chs" \
+            '[ $D[] as $d | $C[] as $c | {domain:$d,chunk:"chunks/\($c)"} ]')
+          echo "matrix=$matrix" >> $GITHUB_OUTPUT
+
+  bruteforce:
+    needs: prepare_matrix
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false      # <— prevents one failure from canceling the rest
+      matrix:
+        pair: ${{ fromJson(needs.prepare_matrix.outputs.matrix) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Export Go binary path
+        run: echo "$HOME/go/bin" >> $GITHUB_PATH
+      
+      - name: Install massdns & puredns
+        run: |
+          git clone https://github.com/blechschmidt/massdns.git
+          cd massdns && make && sudo make install && cd ..
+          go install github.com/d3mondev/puredns/v2@latest
+          echo "$HOME/go/bin" >> $GITHUB_PATH
+
+      - name: Create results directory
+        run: |
+          D="${{ matrix.pair.domain }}"
+          mkdir -p "results/$D"
+
+      - name: Run PureDNS Bruteforce on chunk
+        run: |
+          D="${{ matrix.pair.domain }}"
+          CHUNK="${{ matrix.pair.chunk }}"
+          OUT="results/$D/$(basename "$CHUNK").txt"
+          echo "⇢ Bruteforce $D with $CHUNK"
+          puredns bruteforce "$CHUNK" "$D" \
+            -r resolvers.txt --wildcard-tests 50 --write "$OUT" --write-wildcards wildcards.txt --write-massdns massdns.txt 
+           
+
+      - name: Commit & push results
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add results/
+          git diff --cached --quiet || {
+            git commit -m "Add puredns chunk for ${{ matrix.pair.domain }}:${{ matrix.pair.chunk }}"
+            git pull --rebase --autostash origin main
+            git push
+          }
