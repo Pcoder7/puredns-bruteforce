@@ -145,6 +145,8 @@ jobs:
             echo "Error: No chunks were generated. Wordlist might be empty or too small."
             exit 1
           fi
+          echo "Ensuring placeholder files for artifact exist..."
+          touch wildcards.txt massdns.txt # Create empty files if they don't exist
 
       - name: Build matrix JSON
         id: set_matrix
@@ -238,7 +240,7 @@ jobs:
         uses: actions/download-artifact@v4 
         with:
           name: puredns-assets
-          path: . # Download to the current working directory
+
             
 
       - name: Create results directory
@@ -253,14 +255,20 @@ jobs:
           CHUNK_FILE="${{ matrix.pair.chunk_file }}" # Using the updated matrix key
           CHUNK_PATH="chunks/$CHUNK_FILE" # Reconstruct full path to chunk
 
+          # Verify files downloaded correctly
+          if [ ! -d "chunks" ]; then
+            echo "Error: 'chunks' directory not found after artifact download!"
+            ls -A . # List current directory contents
+            exit 1
+          fi
           if [ ! -f "$CHUNK_PATH" ]; then
             echo "Error: Chunk file '$CHUNK_PATH' not found after artifact download!"
-            ls -R # List directory structure for debugging
+            ls -A chunks/ # List chunks directory contents
             exit 1
           fi
           if [ ! -f "resolvers.txt" ]; then
             echo "Error: resolvers.txt not found after artifact download!"
-            ls -R
+            ls -A .
             exit 1
           fi
           
