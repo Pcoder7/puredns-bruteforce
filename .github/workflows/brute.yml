@@ -314,8 +314,46 @@ jobs:
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
           git add results/
-          git diff --cached --quiet || {
+          # Only commit and push if there are actual changes
+          if ! git diff --cached --quiet; then
             git commit -m "Add puredns chunk for ${{ matrix.pair.domain }}:${{ matrix.pair.chunk }}"
-            git pull --rebase --autostash origin main
-            git push
-          }
+            
+            # Retry loop for pull/rebase & push
+            MAX_ATTEMPTS=5
+            ATTEMPT_NUM=1
+            SUCCESS=false
+            while [ $ATTEMPT_NUM -le $MAX_ATTEMPTS ]; do
+              echo "Attempt $ATTEMPT_NUM to rebase and push..."
+              # Always fetch latest before rebase and push attempt
+              # The previous `git pull --rebase` might be stale if another job pushed in between.
+              # Pulling again right before push is more robust in a loop.
+              if git pull --rebase --autostash origin main; then
+                if git push origin HEAD:main; then # Push current HEAD to remote main
+                  echo "Push successful on attempt $ATTEMPT_NUM."
+                  SUCCESS=true
+                  break
+                else
+                  echo "Push failed on attempt $ATTEMPT_NUM after rebase."
+                fi
+              else
+                echo "Pull --rebase failed on attempt $ATTEMPT_NUM. There might be a conflict or other issue."
+                # If rebase fails, often due to unresolvable conflicts, pushing will also fail.
+                # You might need a strategy for this, e.g., failing the job or trying to reset and pull fresh.
+                # For now, we'll let it retry, but a persistent rebase failure will exhaust retries.
+              fi
+
+              if [ $ATTEMPT_NUM -eq $MAX_ATTEMPTS ]; then
+                echo "Max push attempts reached. Giving up."
+                exit 1
+              fi
+              # Wait a bit before retrying, with a bit of randomness to avoid thundering herd
+              sleep $((RANDOM % 5 + 5)) # Sleep 5-9 seconds
+              ATTEMPT_NUM=$((ATTEMPT_NUM + 1))
+            done
+            if [ "$SUCCESS" = false ]; then
+              echo "Failed to push after $MAX_ATTEMPTS attempts."
+              exit 1
+            fi
+          else
+            echo "No changes to commit for ${{ matrix.pair.domain }}:${{ matrix.pair.chunk }}."
+          fi
