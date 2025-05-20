@@ -170,9 +170,9 @@ jobs:
       - name: Upload chunks as artifact
         uses: actions/download-artifact@v4 
         with:
-          name: puredns-assets
+          name: chunks
           path: |      
-            chunks/
+            chunks
             resolvers.txt 
             wildcards.txt # Initial empty wildcards file, puredns will append to it.
             massdns.txt   # Initial empty massdns file, puredns will append to it.
@@ -239,10 +239,8 @@ jobs:
       - name: Download puredns assets (chunks and resolvers)
         uses: actions/download-artifact@v4 
         with:
-          name: puredns-assets
-
-            
-
+          name: chunks
+          
       - name: Create results directory
         run: |
           D="${{ matrix.pair.domain }}"
