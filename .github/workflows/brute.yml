@@ -16,6 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set_matrix.outputs.matrix }}
+      unique_domains_json: ${{ steps.set_matrix.outputs.unique_domains_json }}
+      all_chunk_basenames_json: ${{ steps.set_matrix.outputs.all_chunk_basenames_json }}
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -36,7 +38,7 @@ jobs:
       - name: Install prerequisites
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y git make gcc dos2unix
+          sudo apt-get install -y git make gcc dos2unix jq
           # go is provided by setup-go
 
       - name: Setup Go
@@ -163,21 +165,32 @@ jobs:
             exit 1
           fi
           # Ensure domains.txt is not empty and jq is installed
-          sudo apt-get install -y jq
-   
-          doms=$(grep -E '\S' domains.txt | jq -R -s -c 'split("\n")[:-1]')
-          chs=$(ls chunks | jq -R -s -c 'split("\n")[:-1]')
-          matrix=$(jq -n --argjson D "$doms" --argjson C "$chs" \
-            '[ $D[] as $d | $C[] as $c | {domain:$d,chunk:"chunks/\($c)"} ]')
-          # Use multi-line output for GitHub Actions
-          echo "matrix<<EOF" >> $GITHUB_OUTPUT
-          echo "$matrix" >> $GITHUB_OUTPUT
+          
+          # ... (existing logic to create full_matrix_jq) ...
+
+          unique_domains_for_agg_jq=$(echo "$full_matrix_jq" | jq 'map(.domain) | unique | map(select(. != null and . != ""))')
+
+          echo "unique_domains_json<<EOF" >> $GITHUB_OUTPUT
+          echo "$unique_domains_for_agg_jq" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
+
+          echo "all_chunk_basenames_json<<EOF" >> $GITHUB_OUTPUT
+          echo "$chunks_jq_array" >> $GITHUB_OUTPUT # chunks_jq_array was already defined
+          echo "EOF" >> $GITHUB_OUTPUT
+   
+          #doms=$(grep -E '\S' domains.txt | jq -R -s -c 'split("\n")[:-1]')
+          #chs=$(ls chunks | jq -R -s -c 'split("\n")[:-1]')
+          #matrix=$(jq -n --argjson D "$doms" --argjson C "$chs" \
+           # '[ $D[] as $d | $C[] as $c | {domain:$d,chunk:"chunks/\($c)"} ]')
+          # Use multi-line output for GitHub Actions
+          #echo "matrix<<EOF" >> $GITHUB_OUTPUT
+          #echo "$matrix" >> $GITHUB_OUTPUT
+          #echo "EOF" >> $GITHUB_OUTPUT
       
       - name: Upload chunks as artifact
         uses: actions/upload-artifact@v4 
         with:
-          name: chunks
+          name: a
           path: |      
             chunks
             resolvers.txt 
@@ -289,19 +302,21 @@ jobs:
           
           # Sanitize domain for use in output file names if needed
           D_FILENAME=$(echo "$DOMAIN" | tr '.' '_')
-          OUT_DIR="results/$D_FILENAME"
-          
-          # These output files are specific to puredns's operation here
-          # Make massdns file unique per chunk/domain
-          mkdir -p "$OUT_DIR" # Ensure output directory exists
+          OUT_DIR="puredns_temp_output_for_artifact" 
 
-          # Correctly derive basename from CHUNK_FILE
-          CHUNK_BASENAME=$(basename "$CHUNK_FILE")
-
+            OUT_DIR="puredns_temp_output_for_artifact" # Using a distinct name for clarity
+          mkdir -p "$OUT_DIR"
+          CHUNK_BASENAME=$(basename "$CHUNK_FILE") 
+          # These file paths are now relative to the temporary OUT_DIR
           OUT_FILE="$OUT_DIR/results_${CHUNK_BASENAME}.txt"
-          # Corrected definitions for WILDCARDS_FILE and MASSDNS_FILE:
           WILDCARDS_FILE="$OUT_DIR/wildcards_${CHUNK_BASENAME}.txt"
           MASSDNS_FILE="$OUT_DIR/massdns_${CHUNK_BASENAME}.txt"
+
+
+
+          # Correctly derive basename from CHUNK_FILE
+
+
           echo "⇢ Bruteforcing $DOMAIN with $CHUNK_FILE"
           echo "Outputting results to $OUT_FILE"
           
@@ -316,173 +331,239 @@ jobs:
           
           echo "Puredns scan complete for $DOMAIN with $CHUNK_FILE."
           echo "Results are in $OUT_FILE"
-          if [ -f "$WILDCARDS_FILE" ]; then echo "Wildcards in $WILDCARDS_FILE"; fi
-          if [ -f "$MASSDNS_FILE" ]; then echo "MassDNS formatted output in $MASSDNS_FILE"; fi
+           # Ensure files exist for upload, even if empty
+          if [ -f "$OUT_FILE" ]; then echo "Results in $OUT_FILE"; else touch "$OUT_FILE"; fi
+          if [ -f "$WILDCARDS_FILE" ]; then echo "Wildcards in $WILDCARDS_FILE"; else touch "$WILDCARDS_FILE"; fi
+          if [ -f "$MASSDNS_FILE" ]; then echo "MassDNS in $MASSDNS_FILE"; else touch "$MASSDNS_FILE"; fi
 
           # Set outputs for the artifact upload step
-          # We upload the contents of ARTIFACT_STAGING_DIR
-          echo "artifact_upload_path=$ARTIFACT_STAGING_DIR" >> $GITHUB_OUTPUT
-          # Artifact name needs to be unique per chunk if multiple chunks for same domain run in parallel
-          echo "artifact_upload_name=chunk_output_${S_DOMAIN}_${C_BASE}" >> $GITHUB_OUTPUT
+          echo "D_FILENAME_FOR_ARTIFACT=$D_FILENAME" >> $GITHUB_ENV
+          echo "CHUNK_BASENAME_FOR_ARTIFACT=$CHUNK_BASENAME" >> $GITHUB_ENV
+          echo "TEMP_OUT_DIR_FOR_ARTIFACT=$OUT_DIR" >> $GITHUB_ENV
 
-      - name: Upload scan results for this chunk
+      - name: Upload individual chunk results
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.puredns_run.outputs.artifact_upload_name }} # e.g., chunk_output_example_com_chunk_01
-          path: ${{ steps.puredns_run.outputs.artifact_upload_path }} # Uploads contents of 'temp_for_upload'
-                                                                    # This means it uploads the 'example_com' dir
-                                                                    # containing 'results_chunk_01.txt' etc.
-          retention-days: 1
+          name: artifact_${{ env.D_FILENAME_FOR_ARTIFACT }}_${{ env.CHUNK_BASENAME_FOR_ARTIFACT }}
+          path: |
+            ${{ env.TEMP_OUT_DIR_FOR_ARTIFACT }}/results_${{ env.CHUNK_BASENAME_FOR_ARTIFACT }}.txt
+            ${{ env.TEMP_OUT_DIR_FOR_ARTIFACT }}/wildcards_${{ env.CHUNK_BASENAME_FOR_ARTIFACT }}.txt
+            ${{ env.TEMP_OUT_DIR_FOR_ARTIFACT }}/massdns_${{ env.CHUNK_BASENAME_FOR_ARTIFACT }}.txt
 
           
 
   aggregate_results:
-    needs: bruteforce
+    needs: [prepare_matrix, bruteforce] # Depends on both previous jobs
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # matrix.domain_from_prepare_matrix will be like "example.com"
+        # Using 'unique_domains_json' output from 'prepare_matrix' job
+        domain_from_prepare_matrix: ${{ fromJson(needs.prepare_matrix.outputs.unique_domains_json) }}
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v3
         with:
-          ref: ${{ github.ref_name }}
-          fetch-depth: 0
+          fetch-depth: 0 # Need full history for rebase
 
-      - name: Download all chunk output artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: ./dl_artifacts # Each artifact in its own subdirectory
+      - name: Install JQ
+        run: sudo apt-get update -qq && sudo apt-get install -y jq
 
-      - name: Prepare downloaded files for aggregation
-        id: prep_files
+      - name: Prepare directories and define key variables
+        id: prep_vars
         run: |
-          echo "Preparing downloaded artifacts..."
-          art_base="./dl_artifacts" # Base dir where artifacts were downloaded
-          res_root="results"        # Root for final structured results (e.g., results/example_com)
-          mkdir -p "$res_root"
+          # This is the actual domain string, e.g., "example.com"
+          CURRENT_DOMAIN="${{ matrix.domain_from_prepare_matrix }}"
+          echo "Processing domain: $CURRENT_DOMAIN"
+
+          # This is the sanitized version for filenames/paths, e.g., "example_com"
+          # This matches D_FILENAME_FOR_ARTIFACT from the bruteforce job
+          DOMAIN_FILENAME_SAFE=$(echo "$CURRENT_DOMAIN" | tr '.' '_')
+          echo "Sanitized domain filename: $DOMAIN_FILENAME_SAFE"
           
-          if [ ! -d "$art_base" ] || [ -z "$(ls -A $art_base)" ]; then
-            echo "No artifacts found in $art_base. Nothing to prepare."
-            echo "results_prepared=false" >> $GITHUB_OUTPUT
-            exit 0 
+          # Directory in the repository for final aggregated files
+          # e.g., results/example_com
+          FINAL_REPO_DIR="results/$DOMAIN_FILENAME_SAFE"
+          mkdir -p "$FINAL_REPO_DIR"
+
+          # Temporary local directory to gather this domain's chunk files after downloading all artifacts
+          # e.g., temp_domain_files/example_com
+          TEMP_FILES_GATHER_DIR="temp_domain_files/$DOMAIN_FILENAME_SAFE"
+          mkdir -p "$TEMP_FILES_GATHER_DIR"
+
+          echo "current_domain_env=$CURRENT_DOMAIN" >> $GITHUB_ENV
+          echo "domain_filename_safe_env=$DOMAIN_FILENAME_SAFE" >> $GITHUB_ENV
+          echo "final_repo_dir_env=$FINAL_REPO_DIR" >> $GITHUB_ENV
+          echo "temp_files_gather_dir_env=$TEMP_FILES_GATHER_DIR" >> $GITHUB_ENV
+
+      - name: Download all workflow artifacts
+        uses: actions/download-artifact@v4
+        # No 'name' specified, so it downloads ALL artifacts produced by the workflow.
+        # Each artifact will be in its own directory named after the artifact.
+        # e.g., ./artifact_example_com_chunk_01/results_chunk_01.txt
+
+      - name: Consolidate artifacts for current domain (${{ env.current_domain_env }})
+        run: |
+          echo "Consolidating artifacts for domain: ${{ env.current_domain_env }} (filename: ${{ env.domain_filename_safe_env }})"
+          echo "Looking for artifact directories named like: artifact_${{ env.domain_filename_safe_env }}_*"
+          echo "Copying their contents to: ${{ env.temp_files_gather_dir_env }}"
+          
+          found_artifacts_for_domain=false
+          # Artifact directories are named like: artifact_D_FILENAME_FOR_ARTIFACT_CHUNK_BASENAME_FOR_ARTIFACT
+          # So we search for artifact_${{ env.domain_filename_safe_env }}_*
+          for artifact_source_dir in artifact_${{ env.domain_filename_safe_env }}_*; do
+            if [ -d "$artifact_source_dir" ]; then
+              echo "Processing downloaded artifact directory: $artifact_source_dir"
+              # Copy all files from this artifact_source_dir into TEMP_FILES_GATHER_DIR
+              # Using -n to not overwrite, though shouldn't be an issue with unique chunk names in file names
+              cp -n "$artifact_source_dir"/* "${{ env.temp_files_gather_dir_env }}/" 2>/dev/null || true 
+              found_artifacts_for_domain=true
+            else
+              echo "Debug: Expected artifact directory $artifact_source_dir not found (this is normal if loop is just checking possibilities)"
+            fi
+          done
+
+          if [ "$found_artifacts_for_domain" = false ]; then
+            echo "Warning: No artifact directories found matching 'artifact_${{ env.domain_filename_safe_env }}_*' for domain ${{ env.current_domain_env }}."
+          else
+            echo "Files in temporary gathering directory (${{ env.temp_files_gather_dir_env }}) after consolidation:"
+            ls -lA "${{ env.temp_files_gather_dir_env }}"
           fi
 
-          # Iterate through each downloaded artifact directory
-          # e.g., ./dl_artifacts/chunk_output_example_com_chunk_01/
-          find "$art_base" -mindepth 1 -maxdepth 1 -type d -name "chunk_output_*" | while read -r downloaded_artifact_dir; do
-            # Inside downloaded_artifact_dir, there should be a single domain directory
-            # e.g., ./dl_artifacts/chunk_output_example_com_chunk_01/example_com/
-            
-            # Find the domain directory *within* the current downloaded artifact directory
-            # Assuming only one domain directory per artifact upload from bruteforce's ARTIFACT_STAGING_DIR
-            find "$downloaded_artifact_dir" -mindepth 1 -maxdepth 1 -type d | while read -r source_domain_dir_in_artifact; do
-                s_domain=$(basename "$source_domain_dir_in_artifact") # e.g., example_com
-                
-                echo "Prep > Found domain '$s_domain' in artifact '$downloaded_artifact_dir'"
+      - name: Aggregate results for domain (${{ env.current_domain_env }})
+        run: |
+          shopt -s nullglob # Globs expand to nothing if no match
 
-                target_domain_dir_final="$res_root/$s_domain" # e.g., results/example_com
-                mkdir -p "$target_domain_dir_final"
+          # Source directory for individual chunk files for this domain
+          # e.g., temp_domain_files/example_com
+          SOURCE_CHUNK_FILES_DIR="${{ env.temp_files_gather_dir_env }}" 
+          
+          # Target directory for aggregated files in the git repo
+          # e.g., results/example_com
+          TARGET_AGGREGATED_DIR="${{ env.final_repo_dir_env }}"      
 
-                # Copy all files (results_chunk_XX.txt, massdns_chunk_XX.txt, etc.)
-                # from the source_domain_dir_in_artifact to the target_domain_dir_final.
-                # Using 'cp -n' to avoid overwriting if somehow multiple artifacts tried to create the exact same file,
-                # though artifact naming should make chunk files unique.
-                # Or use 'cp -rT' if source_domain_dir_in_artifact might have subdirs (not expected here).
-                # A simple 'cp *' assumes files only.
-                echo "Copying files from $source_domain_dir_in_artifact to $target_domain_dir_final"
-                if [ -n "$(ls -A "$source_domain_dir_in_artifact")" ]; then # Check if dir is not empty
-                    cp "$source_domain_dir_in_artifact"/* "$target_domain_dir_final/"
-                else
-                    echo "Warn: Source domain directory $source_domain_dir_in_artifact is empty."
-                fi
-            done
+          echo "Aggregating files from $SOURCE_CHUNK_FILES_DIR into $TARGET_AGGREGATED_DIR for domain ${{ env.current_domain_env }}"
+
+          # Aggregate results_chunk.txt
+          # Files in SOURCE_CHUNK_FILES_DIR are named like results_chunk_01.txt, results_chunk_02.txt etc.
+          RESULTS_FILES=("$SOURCE_CHUNK_FILES_DIR"/results_*.txt)
+          if [ ${#RESULTS_FILES[@]} -gt 0 ]; then
+            echo "Found ${#RESULTS_FILES[@]} results files to aggregate."
+            cat "${RESULTS_FILES[@]}" | sort -u > "$TARGET_AGGREGATED_DIR/results_chunk.txt"
+          else
+            echo "No results_*.txt files found in $SOURCE_CHUNK_FILES_DIR for ${{ env.current_domain_env }}. Creating empty results_chunk.txt."
+            touch "$TARGET_AGGREGATED_DIR/results_chunk.txt"
+          fi
+
+          # Aggregate massdns_chunk.txt
+          MASSDNS_FILES=("$SOURCE_CHUNK_FILES_DIR"/massdns_*.txt)
+          if [ ${#MASSDNS_FILES[@]} -gt 0 ]; then
+            echo "Found ${#MASSDNS_FILES[@]} massdns files to aggregate."
+            cat "${MASSDNS_FILES[@]}" | sort -u > "$TARGET_AGGREGATED_DIR/massdns_chunk.txt"
+          else
+            echo "No massdns_*.txt files found in $SOURCE_CHUNK_FILES_DIR for ${{ env.current_domain_env }}. Creating empty massdns_chunk.txt."
+            touch "$TARGET_AGGREGATED_DIR/massdns_chunk.txt"
+          fi
+
+          # Aggregate wildcards_chunk.txt
+          WILDCARDS_FILES=("$SOURCE_CHUNK_FILES_DIR"/wildcards_*.txt)
+          if [ ${#WILDCARDS_FILES[@]} -gt 0 ]; then
+            echo "Found ${#WILDCARDS_FILES[@]} wildcards files to aggregate."
+            cat "${WILDCARDS_FILES[@]}" | sort -u > "$TARGET_AGGREGATED_DIR/wildcards_chunk.txt"
+          else
+            echo "No wildcards_*.txt files found in $SOURCE_CHUNK_FILES_DIR for ${{ env.current_domain_env }}. Creating empty wildcards_chunk.txt."
+            touch "$TARGET_AGGREGATED_DIR/wildcards_chunk.txt"
+          fi
+          
+          # Create check_chunk.txt
+          CHECK_FILE_FINAL_PATH="$TARGET_AGGREGATED_DIR/check_chunk.txt"
+          >"$CHECK_FILE_FINAL_PATH" # Create/clear the final check file
+          
+          # Using 'all_chunk_basenames_json' output from 'prepare_matrix' job
+          ALL_CHUNK_BASENAMES_JSON='${{ needs.prepare_matrix.outputs.all_chunk_basenames_json }}'
+          
+          echo "Generating $CHECK_FILE_FINAL_PATH for domain ${{ env.current_domain_env }} using all_chunk_basenames_json: $ALL_CHUNK_BASENAMES_JSON"
+
+          # Iterate over all possible chunk basenames defined in prepare_matrix
+          echo "$ALL_CHUNK_BASENAMES_JSON" | jq -r '.[]' | while IFS= read -r each_chunk_basename; do
+              # each_chunk_basename is like "chunk_01", "chunk_02"
+              # Check for the existence of the corresponding result file for *this domain* and *this chunk*
+              expected_chunk_result_file="$SOURCE_CHUNK_FILES_DIR/results_${each_chunk_basename}.txt"
+              
+              if [ -f "$expected_chunk_result_file" ]; then
+                  # Count non-empty lines to determine if valid domains were found
+                  line_count=$(grep -cvE '^\s*$' "$expected_chunk_result_file") 
+                  if [ "$line_count" -gt 0 ]; then
+                      printf "%s found %02d valid domains\n" "$each_chunk_basename" "$line_count" >> "$CHECK_FILE_FINAL_PATH"
+                  else
+                      printf "%s No valid domains found\n" "$each_chunk_basename" >> "$CHECK_FILE_FINAL_PATH"
+                  fi
+              else
+                  # This means the results_*.txt file for this chunk_basename was not found for this domain.
+                  # This could happen if a bruteforce job for a particular chunk of a domain failed,
+                  # or if puredns didn't produce an output file for some reason.
+                  printf "%s result file not found for this domain\n" "$each_chunk_basename" >> "$CHECK_FILE_FINAL_PATH"
+              fi
           done
           
-          echo "results_prepared=true" >> $GITHUB_OUTPUT
-          echo "Preparation complete. Files should be in $res_root/DOMAIN_NAME/file_CHUNK_NAME.txt"
-
-      - name: Aggregate per‑domain outputs
-        if: steps.prep_files.outputs.results_prepared == 'true'
-        # THIS IS YOUR SCRIPT - IT SHOULD NOW WORK AS INTENDED
-        # It expects results/DOMAIN_NAME/results_chunk_01.txt, results_chunk_02.txt etc.
-        run: |
-          echo "Starting aggregation..."
-          if [ ! -d "results" ] || [ -z "$(ls -A results)" ]; then
-            echo "⚠️ 'results' directory is missing or empty. Nothing to aggregate."
-            exit 0
+          if [ ! -s "$CHECK_FILE_FINAL_PATH" ]; then # if file is empty (e.g. all_chunk_basenames_json was empty)
+              echo "No chunk processing information recorded for domain ${{ env.current_domain_env }}." > "$CHECK_FILE_FINAL_PATH"
           fi
-          for D_DIR_ABSOLUTE_PATH in results/*/; do
-            if [ ! -d "$D_DIR_ABSOLUTE_PATH" ]; then
-              echo "No domain subdirectories found in results/ or pattern did not match."
-              break 
-            fi
-            _temp_domain_part=$(basename "$D_DIR_ABSOLUTE_PATH") 
-            D=${_temp_domain_part} 
-            D_DIR=$D_DIR_ABSOLUTE_PATH 
-            echo "Agg > Domain: $D in dir: $D_DIR"
-            if ! cd "$D_DIR"; then
-                echo "Error: Could not change to directory $D_DIR. Skipping."
-                continue 
-            fi
-            shopt -s nullglob
-            chunks=(results_*.txt) 
-            massdns_chunk_files=(massdns_*.txt) 
-            wildcards_chunk_files=(wildcards_*.txt)
-            if [ ${#chunks[@]} -eq 0 ]; then
-              echo "⚠️ No results_*.txt files to merge in $(pwd) for domain $D"
-            fi
-            if [ ${#chunks[@]} -gt 0 ]; then cat "${chunks[@]}" > results_chunk.txt; else : > results_chunk.txt; fi
-            if [ ${#massdns_chunk_files[@]} -gt 0 ]; then cat "${massdns_chunk_files[@]}" > massdns_chunk.txt; else : > massdns_chunk.txt; fi
-            if [ ${#wildcards_chunk_files[@]} -gt 0 ]; then cat "${wildcards_chunk_files[@]}" > wildcards_chunk.txt; else : > wildcards_chunk.txt; fi
-            : > check_chunk.txt 
-            if [ ${#chunks[@]} -gt 0 ]; then 
-              for f in "${chunks[@]}"; do 
-                c_full_name=${f#results_}    
-                c=${c_full_name%.txt}        
-                if [ -f "$f" ]; then
-                    count=$(wc -l < "$f")
-                    if [ "$count" -gt 0 ]; then printf "%s Found %s domains\n" "$c" "$count"; else printf "%s No valid domains found\n" "$c"; fi >> check_chunk.txt
-                fi
-              done
-            else
-              echo "No results_*.txt files found for $D to generate specific check_chunk.txt details." >> check_chunk.txt
-            fi
-            cd .. 
-          done 
-          echo "Aggregation complete."
+          echo "Aggregation complete for domain ${{ env.current_domain_env }}. Aggregated files are in $TARGET_AGGREGATED_DIR"
 
-      - name: Commit & push aggregated results
-        if: steps.prep_files.outputs.results_prepared == 'true'
-        # ... (commit and push script remains the same, with retry loop) ...
+      - name: Commit and push aggregated results for domain (${{ env.current_domain_env }})
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-          git add results/*/{results_chunk.txt,massdns_chunk.txt,wildcards_chunk.txt,check_chunk.txt}
+          
+          # Add only the aggregated files for the current domain
+          # TARGET_AGGREGATED_DIR is like results/example_com
+          git add "${{ env.final_repo_dir_env }}/results_chunk.txt" \
+                  "${{ env.final_repo_dir_env }}/massdns_chunk.txt" \
+                  "${{ env.final_repo_dir_env }}/wildcards_chunk.txt" \
+                  "${{ env.final_repo_dir_env }}/check_chunk.txt"
+
           if ! git diff --cached --quiet; then
-            git commit -m "📦 Add consolidated puredns results for workflow run"
+            git commit -m "Aggregate puredns results for ${{ env.current_domain_env }}"
+            
             MAX_ATTEMPTS=5
             ATTEMPT_NUM=1
             SUCCESS=false
             while [ $ATTEMPT_NUM -le $MAX_ATTEMPTS ]; do
-              echo "Attempt $ATTEMPT_NUM to rebase and push aggregated results..."
-              if git pull --rebase --autostash origin ${{ github.ref_name }}; then
-                if git push origin HEAD:${{ github.ref_name }}; then
-                  echo "Push successful on attempt $ATTEMPT_NUM."
+              echo "Attempt $ATTEMPT_NUM to rebase and push for ${{ env.current_domain_env }}..."
+              git fetch origin main 
+              if git pull --rebase --autostash origin main; then
+                if git push origin HEAD:main; then 
+                  echo "Push successful for ${{ env.current_domain_env }} on attempt $ATTEMPT_NUM."
                   SUCCESS=true
                   break
                 else
-                  echo "Push failed on attempt $ATTEMPT_NUM after rebase."
+                  echo "Push failed for ${{ env.current_domain_env }} on attempt $ATTEMPT_NUM after rebase."
                 fi
               else
-                echo "Pull --rebase failed on attempt $ATTEMPT_NUM."
+                echo "Pull --rebase failed for ${{ env.current_domain_env }} on attempt $ATTEMPT_NUM."
               fi
-              if [ $ATTEMPT_NUM -eq $MAX_ATTEMPTS ]; then exit 1; fi
+              if [ $ATTEMPT_NUM -eq $MAX_ATTEMPTS ]; then
+                echo "Max push attempts reached for ${{ env.current_domain_env }}. Giving up."
+                break 
+              fi
               sleep $((RANDOM % 5 + 5)) 
               ATTEMPT_NUM=$((ATTEMPT_NUM + 1))
             done
-            if [ "$SUCCESS" = false ]; then exit 1; fi
+            if [ "$SUCCESS" = false ]; then
+              echo "Failed to push aggregated results for ${{ env.current_domain_env }} after $MAX_ATTEMPTS attempts."
+              exit 1 
+            fi
           else
-            echo "No changes to aggregated results to commit."
+            echo "No changes to commit for aggregated results of ${{ env.current_domain_env }}."
           fi
+      
+      - name: Clean up downloaded artifacts and temp domain files
+        if: always() 
+        run: |
+          echo "Cleaning up downloaded artifact directories (artifact_*) and temp domain files gathering dir (temp_domain_files)..."
+          rm -rf artifact_* # Removes all directories starting with artifact_
+          rm -rf temp_domain_files # Removes the parent temp directory
+          echo "Cleanup complete."
  
