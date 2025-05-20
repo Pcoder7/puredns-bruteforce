@@ -169,12 +169,11 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: puredns-assets
-          path: chunks/      
+          path: |      
             chunks/
             resolvers.txt 
             wildcards.txt # Initial empty wildcards file, puredns will append to it.
             massdns.txt   # Initial empty massdns file, puredns will append to it.
-          if-no-files-found: error # Fail if critical files are missing          
 
   bruteforce:
     needs: prepare_matrix
