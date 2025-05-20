@@ -126,6 +126,12 @@ jobs:
           echo "matrix<<EOF" >> $GITHUB_OUTPUT
           echo "$matrix" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
+      
+      - name: Upload chunks as artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: dns-chunks
+          path: chunks/          
 
   bruteforce:
     needs: prepare_matrix
