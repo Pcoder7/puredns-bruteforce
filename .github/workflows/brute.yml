@@ -9,7 +9,7 @@ permissions:
 env:
   LINES_PER_CHUNK: 500000
   COMBINED_WORDLIST: "best-wordlist-9996122_filter.txt"
-  GOPATH: "${{ runner.home }}/go"
+ 
 
 jobs:
   prepare_matrix:
@@ -26,9 +26,9 @@ jobs:
         uses: actions/cache@v3
         with:
           path: |
-            ${{ env.GOPATH }}/pkg/mod
+            $HOME/go/pkg/mod
             ~/.cache/go-build
-            ${{ env.GOPATH }}/bin
+            $HOME/go/bin
           key: ${{ runner.os }}-go-cache-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-cache-
@@ -124,9 +124,9 @@ jobs:
         uses: actions/cache@v3
         with:
           path: |
-            ${{ env.GOPATH }}/pkg/mod
+            $HOME/go/pkg/mod
             ~/.cache/go-build
-            ${{ env.GOPATH }}/bin
+            $HOME/go/bin
           key: ${{ runner.os }}-go-cache-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-cache-
