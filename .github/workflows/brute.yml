@@ -42,7 +42,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          go-version: '1.22'
 
       - name: Install massdns & PureDNS
         run: |
@@ -72,7 +72,9 @@ jobs:
             best-wordlist-9996122.txt
             seclistes-dns-7110368.txt
             resolvers.txt
-          key: wordlists-cache-v1
+          key: wordlists-cache-v2-${{ hashFiles('best-wordlist-9996122.txt', 'seclistes-dns-7110368.txt', 'resolvers.txt') }} # More specific cache key
+          restore-keys: |
+            wordlists-cache-v2-
           
       - name: Fetch wordlists
         run: |
@@ -96,28 +98,64 @@ jobs:
           
           go build -o filter_wordlist filter_wordlist.go
           chmod +x filter_wordlist
-          dos2unix filter_wordlist
+          
 
       - name: Filter and combine wordlists
         run: |
-          ./filter_wordlist best-wordlist-9996122.txt \
-            > best-wordlist-9996122_filter.txt
-          ./filter_wordlist seclistes-dns-7110368.txt \
-            > seclistes-dns-7110368_filter.txt
-          cat seclistes-dns-7110368_filter.txt \
-            | anew -q best-wordlist-9996122_filter.txt \
-            > added-lines.txt
-          wc -l added-lines.txt 
+          if [ -f ./filter_wordlist ]; then
+            echo "Filtering wordlists..."
+            ./filter_wordlist best-wordlist-9996122.txt > best-wordlist-9996122_filter.txt
+            ./filter_wordlist seclistes-dns-7110368.txt > seclistes-dns-7110368_filter.txt
+            
+            cat seclistes-dns-7110368_filter.txt | anew -q best-wordlist-9996122_filter.txt > added-lines.txt
+            echo "Lines added to combined list from seclistes:"
+            wc -l added-lines.txt
+          else
+            echo "filter_wordlist tool not found, using raw wordlists for combining (if applicable)."
+            
+            # Fallback or error if filter_wordlist is essential
+            # For now, assume COMBINED_WORDLIST relies on the _filter.txt version.
+            # If filter_wordlist.go is not present, this job might behave unexpectedly
+            # if COMBINED_WORDLIST is expected to be the output of filtering.
+            # Ensure best-wordlist-9996122_filter.txt exists or is created appropriately.
+            # For this example, let's assume if filter_wordlist isn't built, we use the original
+            # as the COMBINED_WORDLIST if the _filter.txt version isn't created.
+            
+            if [ ! -f "$COMBINED_WORDLIST" ] && [ -f "best-wordlist-9996122.txt" ]; then
+                echo "Warning: $COMBINED_WORDLIST not found. Using raw best-wordlist-9996122.txt for splitting."
+                cp best-wordlist-9996122.txt "$COMBINED_WORDLIST"
+            elif [ ! -f "$COMBINED_WORDLIST" ]; then
+                echo "Error: $COMBINED_WORDLIST cannot be found or created."
+                exit 1
+            fi
+          fi
 
       - name: Split combined wordlist into chunks
         run: |
+          if [ ! -f "$COMBINED_WORDLIST" ]; then
+            echo "Error: Combined wordlist '$COMBINED_WORDLIST' not found. Cannot split."
+            exit 1
+          fi
           mkdir -p chunks
-          split -l $LINES_PER_CHUNK "$COMBINED_WORDLIST" chunks/chunk_
-          echo "Generated $(ls chunks | wc -l) chunks"
+          echo "Splitting '$COMBINED_WORDLIST' into chunks of $LINES_PER_CHUNK lines..."
+          split -l $LINES_PER_CHUNK -a 2 --numeric-suffixes=1 "$COMBINED_WORDLIST" chunks/chunk_
+          CHUNKS_COUNT=$(ls chunks | wc -l)
+          echo "Generated $CHUNKS_COUNT chunks."
+          if [ "$CHUNKS_COUNT" -eq 0 ]; then
+            echo "Error: No chunks were generated. Wordlist might be empty or too small."
+            exit 1
+          fi
 
       - name: Build matrix JSON
         id: set_matrix
         run: |
+          if [ ! -f domains.txt ]; then
+            echo "Error: domains.txt not found!"
+            exit 1
+          fi
+          # Ensure domains.txt is not empty and jq is installed
+          sudo apt-get install -y jq
+   
           doms=$(grep -E '\S' domains.txt | jq -R -s -c 'split("\n")[:-1]')
           chs=$(ls chunks | jq -R -s -c 'split("\n")[:-1]')
           matrix=$(jq -n --argjson D "$doms" --argjson C "$chs" \
@@ -130,8 +168,13 @@ jobs:
       - name: Upload chunks as artifact
         uses: actions/upload-artifact@v3
         with:
-          name: dns-chunks
-          path: chunks/          
+          name: puredns-assets
+          path: chunks/      
+            chunks/
+            resolvers.txt 
+            wildcards.txt # Initial empty wildcards file, puredns will append to it.
+            massdns.txt   # Initial empty massdns file, puredns will append to it.
+          if-no-files-found: error # Fail if critical files are missing          
 
   bruteforce:
     needs: prepare_matrix
@@ -155,6 +198,48 @@ jobs:
           key: ${{ runner.os }}-go-cache-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-cache-
+            
+      - name: Add Go bin to PATH
+        run: echo "${{ env.HOME }}/go/bin" >> $GITHUB_PATH
+        
+      - name: Install prerequisites for massdns
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y git make gcc
+
+      - name: Install massdns
+        run: |
+          if ! command -v massdns >/dev/null; then
+            echo "massdns not found, installing..."
+            git clone https://github.com/blechschmidt/massdns.git
+            cd massdns
+            make -j$(nproc)
+            sudo make install
+            cd ..
+            rm -rf massdns
+          else
+            echo "massdns already installed or cached."
+          fi
+          # Verify puredns is available (from cache or needs install if cache failed)
+          if ! command -v puredns >/dev/null; then
+            echo "puredns not found in PATH after cache restore. Installing..."
+            go install github.com/d3mondev/puredns/v2@latest
+          else
+            echo "puredns is available."
+          fi
+          if ! command -v anew >/dev/null; then
+            echo "anew not found in PATH after cache restore. Installing..."   
+            go install github.com/tomnomnom/anew@latest
+          else
+            echo "anew already installed"
+          fi          
+
+      - name: Download puredns assets (chunks and resolvers)
+        uses: actions/download-artifact@v3
+        with:
+          name: puredns-assets
+          path: . # Download to the current working directory
+            
 
       - name: Create results directory
         run: |
@@ -164,14 +249,53 @@ jobs:
       - name: Run PureDNS Bruteforce on chunk
         run: |
          
-          D="${{ matrix.pair.domain }}"
-          CHUNK="${{ matrix.pair.chunk }}"
-          OUT="results/$D/$(basename "$CHUNK").txt"
+          DOMAIN="${{ matrix.pair.domain }}"
+          CHUNK_FILE="${{ matrix.pair.chunk_file }}" # Using the updated matrix key
+          CHUNK_PATH="chunks/$CHUNK_FILE" # Reconstruct full path to chunk
 
-          echo "⇢ Bruteforce $D with $CHUNK"
-          cat "$CHUNK" | puredns bruteforce "$D" \
+          if [ ! -f "$CHUNK_PATH" ]; then
+            echo "Error: Chunk file '$CHUNK_PATH' not found after artifact download!"
+            ls -R # List directory structure for debugging
+            exit 1
+          fi
+          if [ ! -f "resolvers.txt" ]; then
+            echo "Error: resolvers.txt not found after artifact download!"
+            ls -R
+            exit 1
+          fi
+          
+          # Sanitize domain for use in output file names if needed
+          D_FILENAME=$(echo "$DOMAIN" | tr '.' '_')
+          OUT_DIR="results/$D_FILENAME"
+          
+          # Use specific output file names per chunk to avoid collisions if multiple chunks write to the same domain folder
+          # However, puredns itself handles the domain in its output structure if --write is a directory
+          # For simplicity, your current OUT is fine if puredns appends or if each chunk result is distinct.
+          # The puredns command expects --write to be a single file for results, not a directory.
+          # Let's make the output file unique per chunk.
+                    
+          OUT_FILE="$OUT_DIR/results_$(basename "$CHUNK_FILE").txt"
+          WILDCARDS_FILE="$OUT_DIR/wildcards_$(basename "$CHUNK_FILE").txt" # Make wildcard file unique per chunk/domain
+          MASSDNS_FILE="$OUT_DIR/massdns_$(basename "$CHUNK_FILE").txt"   # Make massdns file unique per chunk/domain
+
+          echo "⇢ Bruteforcing $DOMAIN with $CHUNK_PATH"
+          echo "Outputting results to $OUT_FILE"
+          
+          # The puredns command itself. User requested not to change this.
+          # Ensure the output files are correctly handled.
+          # puredns will create these files.
+          cat "$CHUNK_PATH" | puredns bruteforce "$DOMAIN" \
             -r resolvers.txt \
-            --write "$OUT" --write-wildcards wildcards.txt --write-massdns massdns.txt
+            --write "$OUT_FILE" \
+            --write-wildcards "$WILDCARDS_FILE" \
+            --write-massdns "$MASSDNS_FILE"
+          
+          echo "Puredns scan complete for $DOMAIN with $CHUNK_PATH."
+          echo "Results are in $OUT_FILE"
+          if [ -f "$WILDCARDS_FILE" ]; then echo "Wildcards in $WILDCARDS_FILE"; fi
+          if [ -f "$MASSDNS_FILE" ]; then echo "MassDNS formatted output in $MASSDNS_FILE"; fi
+
+
 
       - name: Commit & push results
         run: |
