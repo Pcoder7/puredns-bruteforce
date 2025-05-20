@@ -78,8 +78,8 @@ jobs:
       - name: Build matrix JSON
         id: set_matrix
         run: |
-          doms=$(jq -R -s -c 'split("")[:-1]' domains.txt)
-          chs=$(ls chunks | jq -R -s -c 'split("")[:-1]')
+          doms=$(grep -E '\S' domains.txt | jq -R -s -c 'split("\n")[:-1]')
+          chs=$(ls chunks | jq -R -s -c 'split("\n")[:-1]')
           matrix=$(jq -n --argjson D "$doms" --argjson C "$chs" \
             '[ $D[] as $d | $C[] as $c | {domain:$d,chunk:"chunks/\($c)"} ]')
           # Use multi-line output for GitHub Actions
@@ -121,8 +121,8 @@ jobs:
           CHUNK="${{ matrix.pair.chunk }}"
           OUT="results/$D/$(basename "$CHUNK").txt"
           echo "⇢ Bruteforce $D with $CHUNK"
-          puredns bruteforce -d "$D" -w "$CHUNK" \
-            --resolvers-trusted resolvers-trusted.txt \
+          puredns bruteforce "$CHUNK" "$D" \
+            -r resolvers.txt \
             --write "$OUT" --write-wildcards wildcards.txt --write-massdns massdns.txt
 
       - name: Commit & push results
