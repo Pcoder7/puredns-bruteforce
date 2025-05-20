@@ -189,6 +189,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
+
+      - name: Setup Go # <-- ADD THIS STEP
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22' # Or your desired Go version        
       
       - name: Restore Go cache
         uses: actions/cache@v3
@@ -278,8 +283,8 @@ jobs:
           # Make massdns file unique per chunk/domain
           mkdir -p "$OUT_DIR" # Ensure output directory exists
 
-          # Correctly derive basename from CHUNK_PATH
-          CHUNK_BASENAME=$(basename "$CHUNK_PATH")
+          # Correctly derive basename from CHUNK_FILE
+          CHUNK_BASENAME=$(basename "$CHUNK_FILE")
 
           OUT_FILE="$OUT_DIR/results_${CHUNK_BASENAME}.txt"
           # Corrected definitions for WILDCARDS_FILE and MASSDNS_FILE:
