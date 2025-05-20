@@ -91,6 +91,7 @@ jobs:
     needs: prepare_matrix
     runs-on: ubuntu-latest
     strategy:
+      max-parallel: 20   
       fail-fast: false
       matrix:
         pair: ${{ fromJson(needs.prepare_matrix.outputs.matrix) }}
@@ -117,9 +118,11 @@ jobs:
 
       - name: Run PureDNS Bruteforce on chunk
         run: |
+         
           D="${{ matrix.pair.domain }}"
           CHUNK="${{ matrix.pair.chunk }}"
           OUT="results/$D/$(basename "$CHUNK").txt"
+          wget https://raw.githubusercontent.com/rix4uni/resolvers/refs/heads/main/resolvers.txt
           echo "⇢ Bruteforce $D with $CHUNK"
           puredns bruteforce "$CHUNK" "$D" \
             -r resolvers.txt \
