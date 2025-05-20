@@ -233,7 +233,7 @@ jobs:
       - name: Upload chunks as artifact
         uses: actions/upload-artifact@v4 
         with:
-          name: a
+          name: common-assets
           path: |      
             chunks
             resolvers.txt 
@@ -312,13 +312,9 @@ jobs:
       - name: Download puredns assets (chunks and resolvers)
         uses: actions/download-artifact@v4 
         with:
-          name: chunks
+          name: common-assets
           
-      - name: Create results directory
-        run: |
-          D="${{ matrix.pair.domain }}"
-          mkdir -p "results/$D"
-                  
+                 
       - name: Run PureDNS Bruteforce on chunk
         run: |
          
@@ -442,6 +438,8 @@ jobs:
 
       - name: Download all workflow artifacts
         uses: actions/download-artifact@v4
+        with:
+          name: artifact_${{ env.D_FILENAME_FOR_ARTIFACT }}_${{ env.CHUNK_BASENAME_FOR_ARTIFACT }}
         # No 'name' specified, so it downloads ALL artifacts produced by the workflow.
         # Each artifact will be in its own directory named after the artifact.
         # e.g., ./artifact_example_com_chunk_01/results_chunk_01.txt
