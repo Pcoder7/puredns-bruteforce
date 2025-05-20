@@ -69,10 +69,12 @@ jobs:
         uses: actions/cache@v3
         with:
           path: |
+            best-wordlist-9996122_filter.txt
+            seclistes-dns-7110368_filter.txt
             best-wordlist-9996122.txt
             seclistes-dns-7110368.txt
             resolvers.txt
-          key: wordlists-cache-v2-${{ hashFiles('best-wordlist-9996122.txt', 'seclistes-dns-7110368.txt', 'resolvers.txt') }} # More specific cache key
+          key: wordlists-cache-v2-${{ hashFiles('best-wordlist-9996122.txt', 'seclistes-dns-7110368.txt', 'resolvers.txt', 'best-wordlist-9996122_filter.txt', 'seclistes-dns-7110368_filter.txt') }} # More specific cache key
           restore-keys: |
             wordlists-cache-v2-
           
@@ -98,37 +100,34 @@ jobs:
           
           go build -o filter_wordlist filter_wordlist.go
           chmod +x filter_wordlist
-          
-
+  
+        
       - name: Filter and combine wordlists
         run: |
-          if [ -f ./filter_wordlist ]; then
-            echo "Filtering wordlists..."
-            ./filter_wordlist best-wordlist-9996122.txt > best-wordlist-9996122_filter.txt
-            ./filter_wordlist seclistes-dns-7110368.txt > seclistes-dns-7110368_filter.txt
-            
-            cat seclistes-dns-7110368_filter.txt | anew -q best-wordlist-9996122_filter.txt > added-lines.txt
-            echo "Lines added to combined list from seclistes:"
-            wc -l added-lines.txt
+          # If filtered wordlist is already cached, skip filtering
+          if [ -f best-wordlist-9996122_filter.txt ]; then
+            echo "Cached filtered wordlist found—skipping filter_wordlist."
           else
-            echo "filter_wordlist tool not found, using raw wordlists for combining (if applicable)."
-            
-            # Fallback or error if filter_wordlist is essential
-            # For now, assume COMBINED_WORDLIST relies on the _filter.txt version.
-            # If filter_wordlist.go is not present, this job might behave unexpectedly
-            # if COMBINED_WORDLIST is expected to be the output of filtering.
-            # Ensure best-wordlist-9996122_filter.txt exists or is created appropriately.
-            # For this example, let's assume if filter_wordlist isn't built, we use the original
-            # as the COMBINED_WORDLIST if the _filter.txt version isn't created.
-            
-            if [ ! -f "$COMBINED_WORDLIST" ] && [ -f "best-wordlist-9996122.txt" ]; then
-                echo "Warning: $COMBINED_WORDLIST not found. Using raw best-wordlist-9996122.txt for splitting."
+            if [ -f ./filter_wordlist ]; then
+              echo "Filtering wordlists..."
+              ./filter_wordlist best-wordlist-9996122.txt > best-wordlist-9996122_filter.txt
+              ./filter_wordlist seclistes-dns-7110368.txt > seclistes-dns-7110368_filter.txt
+      
+              cat seclistes-dns-7110368_filter.txt \
+                | anew -q best-wordlist-9996122_filter.txt > added-lines.txt
+              echo "Lines added to combined list from seclistes:"
+              wc -l added-lines.txt
+            else
+              echo "filter_wordlist tool not found—using raw wordlists."
+              if [ ! -f "$COMBINED_WORDLIST" ] && [ -f "best-wordlist-9996122.txt" ]; then
+                echo "Warning: $COMBINED_WORDLIST missing. Copying raw wordlist."
                 cp best-wordlist-9996122.txt "$COMBINED_WORDLIST"
-            elif [ ! -f "$COMBINED_WORDLIST" ]; then
+              elif [ ! -f "$COMBINED_WORDLIST" ]; then
                 echo "Error: $COMBINED_WORDLIST cannot be found or created."
                 exit 1
+              fi
             fi
-          fi
+          fi    
 
       - name: Split combined wordlist into chunks
         run: |
@@ -319,31 +318,32 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v3
   
-      - name: Combine & summarize chunks per domain
+      - name: Aggregate per‑domain outputs
         run: |
-          for dir in results/*; do
-            [ -d "$dir" ] || continue
-            cd "$dir"
-  
-            # Merge all chunk outputs:
-            cat results_*.txt | sort -u  > results_chunk.txt
-            cat massdns_*.txt | sort -u   > massdns_chunk.txt
-            cat wildcards_*.txt | sort -u > wildcards_chunk.txt
-  
-            # Build check_chunk.txt with per‑chunk counts:
-            : > check_chunk.txt
-            for f in results_*.txt; do
-              chunk=$(basename "$f" | sed -E 's/results_(.*)\.txt/\1/')
-              count=$(wc -l < "$f")
-              if [ "$count" -gt 0 ]; then
-                printf "%s Found %02d domains\n" "$chunk" "$count" >> check_chunk.txt
-              else
-                printf "%s No valid domains found\n" "$chunk" >> check_chunk.txt
-              fi
-            done
-  
-            cd - >/dev/null
-          done
+          # sanitize and cd into this domain’s folder
+          D="${{ matrix.pair.domain }}"
+          D_DIR="results/$(echo "$D" | tr '.' '_')"
+          cd "$D_DIR"
+
+          # merge into three files
+          cat results_*.txt   > results_chunk.txt
+          cat massdns_*.txt   > massdns_chunk.txt
+          cat wildcards_*.txt > wildcards_chunk.txt
+
+          # build check_chunk.txt
+          : > check_chunk.txt
+          for f in results_*.txt; do
+            chunk=${f#results_}      # e.g. chunk_01.txt
+            chunk=${chunk%.txt}      # e.g. chunk_01
+            count=$(wc -l < "$f")
+            if [ "$count" -gt 0 ]; then
+              printf "%s Found %02d domains\n" "$chunk" "$count"
+            else
+              printf "%s No valid domains found\n" "$chunk"
+            fi
+          done >> check_chunk.txt
+
+          cd - >/dev/null      
 
       - name: Commit & push results
         run: |
