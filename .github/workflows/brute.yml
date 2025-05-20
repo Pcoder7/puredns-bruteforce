@@ -69,12 +69,11 @@ jobs:
         uses: actions/cache@v3
         with:
           path: |
-            best-wordlist-9996122_filter.txt
-            seclistes-dns-7110368_filter.txt
+  
             best-wordlist-9996122.txt
             seclistes-dns-7110368.txt
             resolvers.txt
-          key: wordlists-cache-v2-${{ hashFiles('best-wordlist-9996122.txt', 'seclistes-dns-7110368.txt', 'resolvers.txt', 'best-wordlist-9996122_filter.txt', 'seclistes-dns-7110368_filter.txt') }} # More specific cache key
+          key: wordlists-cache-v2-${{ hashFiles('best-wordlist-9996122.txt', 'seclistes-dns-7110368.txt', 'resolvers.txt') }} # More specific cache key
           restore-keys: |
             wordlists-cache-v2-
           
@@ -101,7 +100,16 @@ jobs:
           go build -o filter_wordlist filter_wordlist.go
           chmod +x filter_wordlist
   
-        
+      - name: Cache filtered wordlists
+        uses: actions/cache@v3
+        with:
+        path: |
+          best-wordlist-9996122_filter.txt
+          seclistes-dns-7110368_filter.txt
+        key: filter-wordlists-${{ hashFiles('best-wordlist-9996122_filter.txt', 'seclistes-dns-7110368_filter.txt') }}
+        restore-keys: |
+          filter-wordlists-
+                 
       - name: Filter and combine wordlists
         run: |
           # If filtered wordlist is already cached, skip filtering
@@ -320,29 +328,40 @@ jobs:
   
       - name: Aggregate per‑domain outputs
         run: |
-          # sanitize and cd into this domain’s folder
-          D="${{ matrix.pair.domain }}"
-          D_DIR="results/$(echo "$D" | tr '.' '_')"
+          # 1) Determine and create this run’s result directory
+          D=${{ matrix.pair.domain }}
+          D_DIR="results/${D//./_}"
+          mkdir -p "$D_DIR"
           cd "$D_DIR"
-
-          # merge into three files
-          cat results_*.txt   > results_chunk.txt
-          cat massdns_*.txt   > massdns_chunk.txt
-          cat wildcards_*.txt > wildcards_chunk.txt
-
-          # build check_chunk.txt
-          : > check_chunk.txt
-          for f in results_*.txt; do
-            chunk=${f#results_}      # e.g. chunk_01.txt
-            chunk=${chunk%.txt}      # e.g. chunk_01
-            count=$(wc -l < "$f")
-            if [ "$count" -gt 0 ]; then
-              printf "%s Found %02d domains\n" "$chunk" "$count"
-            else
-              printf "%s No valid domains found\n" "$chunk"
-            fi
-          done >> check_chunk.txt
-
+      
+          # 2) Make sure empty globs vanish
+          shopt -s nullglob
+      
+          # 3) Gather the per‑chunk result files
+          chunks=(results_*.txt)
+          if [ ${#chunks[@]} -eq 0 ]; then
+            echo "⚠️ No results_*.txt files to merge in $D_DIR"
+          else
+            # 4) Merge them
+            cat "${chunks[@]}"   > results_chunk.txt
+            cat massdns_*.txt    > massdns_chunk.txt
+            cat wildcards_*.txt  > wildcards_chunk.txt
+      
+            # 5) Build the check_chunk.txt summary
+            : > check_chunk.txt
+            for f in "${chunks[@]}"; do
+              c=${f#results_}         # strip prefix
+              c=${c%.txt}             # strip suffix
+              count=$(wc -l < "$f")
+              if [ "$count" -gt 0 ]; then
+                printf "%s Found %02d domains\n" "$c" "$count"
+              else
+                printf "%s No valid domains found\n" "$c"
+              fi >> check_chunk.txt
+            done
+          fi
+      
+          # 6) Return back
           cd - >/dev/null      
 
       - name: Commit & push results
