@@ -251,7 +251,7 @@ jobs:
          
           DOMAIN="${{ matrix.pair.domain }}"
           CHUNK_FILE="${{ matrix.pair.chunk }}" # Using the updated matrix key
-          CHUNK_PATH="chunks/$CHUNK_FILE" # Reconstruct full path to chunk
+          CHUNK_PATH="$CHUNK_FILE" # Reconstruct full path to chunk
 
           # Verify files downloaded correctly
           if [ ! -d "chunks" ]; then
