@@ -191,6 +191,7 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Setup Go # <-- ADD THIS STEP
+        id: setup-go 
         uses: actions/setup-go@v5
         with:
           go-version: '1.22' # Or your desired Go version        
@@ -202,9 +203,13 @@ jobs:
             $HOME/go/pkg/mod
             ~/.cache/go-build
             $HOME/go/bin
-          key: ${{ runner.os }}-go-cache-${{ hashFiles('**/go.sum') }}
+            filter_wordlist
+          #key: ${{ runner.os }}-go-cache-${{ hashFiles('**/go.sum') }}
+          
+          key: ${{ runner.os }}-go-${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('filter_wordlist.go') }}
           restore-keys: |
-            ${{ runner.os }}-go-cache-
+           ${{ runner.os }}-go-${{ steps.setup-go.outputs.go-version }}-
+           # ${{ runner.os }}-go-cache-
             
       - name: Add Go bin to PATH
         run: echo "${{ env.HOME }}/go/bin" >> $GITHUB_PATH
