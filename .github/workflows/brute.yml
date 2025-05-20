@@ -275,16 +275,17 @@ jobs:
           # Sanitize domain for use in output file names if needed
           D_FILENAME=$(echo "$DOMAIN" | tr '.' '_')
           OUT_DIR="results/$D_FILENAME"
-          
-          # Use specific output file names per chunk to avoid collisions if multiple chunks write to the same domain folder
-          # However, puredns itself handles the domain in its output structure if --write is a directory
-          # For simplicity, your current OUT is fine if puredns appends or if each chunk result is distinct.
-          # The puredns command expects --write to be a single file for results, not a directory.
-          # Let's make the output file unique per chunk.
-                    
           OUT_FILE="$OUT_DIR/results_$(basename "$CHUNK_FILE").txt"
-          WILDCARDS_FILE="$OUT_DIR/wildcards_$(basename "$CHUNK_FILE").txt" # Make wildcard file unique per chunk/domain
-          MASSDNS_FILE="$OUT_DIR/massdns_$(basename "$CHUNK_FILE").txt"   # Make massdns file unique per chunk/domain
+          # These output files are specific to puredns's operation here
+          WILDCARDS_OUT_FILE="$OUT_DIR/wildcards_$(basename "$CHUNK_FILE").txt"
+          MASSDNS_OUT_FILE="$OUT_DIR/massdns_$(basename "$CHUNK_FILE").f "best-wordlist-9996122.txt" ]; then
+                echo "Warning: $COMBINED_WORDLIST (filtered) not found. Using raw best-wordlist-9996122.txt as $COMBINED_WORDLIST for splitting."
+                cp best-wordlist-9996122.txt "$COMBINED_WORDLIST" # This creates the _filter.txt file from the raw one
+            elif [ ! -f "$COMBINED_WORDLIST" ]; then
+                echo "Error: $COMBINED_WORDLIST cannot be found or created. Ensure best-wordlist-9996122.txt exists if filter_wordlist is not used."
+                exit 1
+            fi
+          fi   # Make massdns file unique per chunk/domain
 
           echo "⇢ Bruteforcing $DOMAIN with $CHUNK_PATH"
           echo "Outputting results to $OUT_FILE"
