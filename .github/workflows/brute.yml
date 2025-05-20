@@ -29,8 +29,6 @@ jobs:
             $HOME/go/pkg/mod
             ~/.cache/go-build
             $HOME/go/bin
-            best-wordlist-9996122.txt
-            seclistes-dns-7110368.txt
           key: ${{ runner.os }}-go-cache-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-cache-
@@ -165,7 +163,7 @@ jobs:
           OUT="results/$D/$(basename "$CHUNK").txt"
 
           echo "⇢ Bruteforce $D with $CHUNK"
-          cat $CHUNK | puredns bruteforce $D \
+          cat "$CHUNK" | puredns bruteforce $D \
             -r resolvers.txt \
             --write "$OUT" --write-wildcards wildcards.txt --write-massdns massdns.txt
 
