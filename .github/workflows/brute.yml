@@ -319,60 +319,170 @@ jobs:
           if [ -f "$WILDCARDS_FILE" ]; then echo "Wildcards in $WILDCARDS_FILE"; fi
           if [ -f "$MASSDNS_FILE" ]; then echo "MassDNS formatted output in $MASSDNS_FILE"; fi
 
+          # Set outputs for the artifact upload step
+          # We upload the contents of ARTIFACT_STAGING_DIR
+          echo "artifact_upload_path=$ARTIFACT_STAGING_DIR" >> $GITHUB_OUTPUT
+          # Artifact name needs to be unique per chunk if multiple chunks for same domain run in parallel
+          echo "artifact_upload_name=chunk_output_${S_DOMAIN}_${C_BASE}" >> $GITHUB_OUTPUT
+
+      - name: Upload scan results for this chunk
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.puredns_run.outputs.artifact_upload_name }} # e.g., chunk_output_example_com_chunk_01
+          path: ${{ steps.puredns_run.outputs.artifact_upload_path }} # Uploads contents of 'temp_for_upload'
+                                                                    # This means it uploads the 'example_com' dir
+                                                                    # containing 'results_chunk_01.txt' etc.
+          retention-days: 1
+
+          
+
   aggregate_results:
     needs: bruteforce
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
     steps:
       - name: Checkout repo
         uses: actions/checkout@v3
-  
-      - name: Aggregate per‑domain outputs
-        run: |
-          # 1) Determine and create this run’s result directory
-          D=${{ matrix.pair.domain }}
-          echo $D
-          D_DIR="results/${D//./_}"
-          echo "$D_DIR"
-          mkdir -p "$D_DIR"
-          cd "$D_DIR"
-          ls -a
-      
-          # 2) Make sure empty globs vanish
-          shopt -s nullglob
-      
-          # 3) Gather the per‑chunk result files
-          chunks=(results_*.txt)
-          if [ ${#chunks[@]} -eq 0 ]; then
-            echo "⚠️ No results_*.txt files to merge in $D_DIR"
-          else
-            # 4) Merge them
-            cat "${chunks[@]}"   > results_chunk.txt
-            cat massdns_*.txt    > massdns_chunk.txt
-            cat wildcards_*.txt  > wildcards_chunk.txt
-      
-            # 5) Build the check_chunk.txt summary
-            : > check_chunk.txt
-            for f in "${chunks[@]}"; do
-              c=${f#results_}         # strip prefix
-              c=${c%.txt}             # strip suffix
-              count=$(wc -l < "$f")
-              if [ "$count" -gt 0 ]; then
-                printf "%s Found %02d domains\n" "$c" "$count"
-              else
-                printf "%s No valid domains found\n" "$c"
-              fi >> check_chunk.txt
-            done
-          fi
-      
-          # 6) Return back
-          cd - >/dev/null      
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
 
-      - name: Commit & push results
+      - name: Download all chunk output artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./dl_artifacts # Each artifact in its own subdirectory
+
+      - name: Prepare downloaded files for aggregation
+        id: prep_files
+        run: |
+          echo "Preparing downloaded artifacts..."
+          art_base="./dl_artifacts" # Base dir where artifacts were downloaded
+          res_root="results"        # Root for final structured results (e.g., results/example_com)
+          mkdir -p "$res_root"
+          
+          if [ ! -d "$art_base" ] || [ -z "$(ls -A $art_base)" ]; then
+            echo "No artifacts found in $art_base. Nothing to prepare."
+            echo "results_prepared=false" >> $GITHUB_OUTPUT
+            exit 0 
+          fi
+
+          # Iterate through each downloaded artifact directory
+          # e.g., ./dl_artifacts/chunk_output_example_com_chunk_01/
+          find "$art_base" -mindepth 1 -maxdepth 1 -type d -name "chunk_output_*" | while read -r downloaded_artifact_dir; do
+            # Inside downloaded_artifact_dir, there should be a single domain directory
+            # e.g., ./dl_artifacts/chunk_output_example_com_chunk_01/example_com/
+            
+            # Find the domain directory *within* the current downloaded artifact directory
+            # Assuming only one domain directory per artifact upload from bruteforce's ARTIFACT_STAGING_DIR
+            find "$downloaded_artifact_dir" -mindepth 1 -maxdepth 1 -type d | while read -r source_domain_dir_in_artifact; do
+                s_domain=$(basename "$source_domain_dir_in_artifact") # e.g., example_com
+                
+                echo "Prep > Found domain '$s_domain' in artifact '$downloaded_artifact_dir'"
+
+                target_domain_dir_final="$res_root/$s_domain" # e.g., results/example_com
+                mkdir -p "$target_domain_dir_final"
+
+                # Copy all files (results_chunk_XX.txt, massdns_chunk_XX.txt, etc.)
+                # from the source_domain_dir_in_artifact to the target_domain_dir_final.
+                # Using 'cp -n' to avoid overwriting if somehow multiple artifacts tried to create the exact same file,
+                # though artifact naming should make chunk files unique.
+                # Or use 'cp -rT' if source_domain_dir_in_artifact might have subdirs (not expected here).
+                # A simple 'cp *' assumes files only.
+                echo "Copying files from $source_domain_dir_in_artifact to $target_domain_dir_final"
+                if [ -n "$(ls -A "$source_domain_dir_in_artifact")" ]; then # Check if dir is not empty
+                    cp "$source_domain_dir_in_artifact"/* "$target_domain_dir_final/"
+                else
+                    echo "Warn: Source domain directory $source_domain_dir_in_artifact is empty."
+                fi
+            done
+          done
+          
+          echo "results_prepared=true" >> $GITHUB_OUTPUT
+          echo "Preparation complete. Files should be in $res_root/DOMAIN_NAME/file_CHUNK_NAME.txt"
+
+      - name: Aggregate per‑domain outputs
+        if: steps.prep_files.outputs.results_prepared == 'true'
+        # THIS IS YOUR SCRIPT - IT SHOULD NOW WORK AS INTENDED
+        # It expects results/DOMAIN_NAME/results_chunk_01.txt, results_chunk_02.txt etc.
+        run: |
+          echo "Starting aggregation..."
+          if [ ! -d "results" ] || [ -z "$(ls -A results)" ]; then
+            echo "⚠️ 'results' directory is missing or empty. Nothing to aggregate."
+            exit 0
+          fi
+          for D_DIR_ABSOLUTE_PATH in results/*/; do
+            if [ ! -d "$D_DIR_ABSOLUTE_PATH" ]; then
+              echo "No domain subdirectories found in results/ or pattern did not match."
+              break 
+            fi
+            _temp_domain_part=$(basename "$D_DIR_ABSOLUTE_PATH") 
+            D=${_temp_domain_part} 
+            D_DIR=$D_DIR_ABSOLUTE_PATH 
+            echo "Agg > Domain: $D in dir: $D_DIR"
+            if ! cd "$D_DIR"; then
+                echo "Error: Could not change to directory $D_DIR. Skipping."
+                continue 
+            fi
+            shopt -s nullglob
+            chunks=(results_*.txt) 
+            massdns_chunk_files=(massdns_*.txt) 
+            wildcards_chunk_files=(wildcards_*.txt)
+            if [ ${#chunks[@]} -eq 0 ]; then
+              echo "⚠️ No results_*.txt files to merge in $(pwd) for domain $D"
+            fi
+            if [ ${#chunks[@]} -gt 0 ]; then cat "${chunks[@]}" > results_chunk.txt; else : > results_chunk.txt; fi
+            if [ ${#massdns_chunk_files[@]} -gt 0 ]; then cat "${massdns_chunk_files[@]}" > massdns_chunk.txt; else : > massdns_chunk.txt; fi
+            if [ ${#wildcards_chunk_files[@]} -gt 0 ]; then cat "${wildcards_chunk_files[@]}" > wildcards_chunk.txt; else : > wildcards_chunk.txt; fi
+            : > check_chunk.txt 
+            if [ ${#chunks[@]} -gt 0 ]; then 
+              for f in "${chunks[@]}"; do 
+                c_full_name=${f#results_}    
+                c=${c_full_name%.txt}        
+                if [ -f "$f" ]; then
+                    count=$(wc -l < "$f")
+                    if [ "$count" -gt 0 ]; then printf "%s Found %s domains\n" "$c" "$count"; else printf "%s No valid domains found\n" "$c"; fi >> check_chunk.txt
+                fi
+              done
+            else
+              echo "No results_*.txt files found for $D to generate specific check_chunk.txt details." >> check_chunk.txt
+            fi
+            cd .. 
+          done 
+          echo "Aggregation complete."
+
+      - name: Commit & push aggregated results
+        if: steps.prep_files.outputs.results_prepared == 'true'
+        # ... (commit and push script remains the same, with retry loop) ...
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
           git add results/*/{results_chunk.txt,massdns_chunk.txt,wildcards_chunk.txt,check_chunk.txt}
-          git diff --cached --quiet || git commit -m "📦 aggregate chunk outputs" && git push
-
-          # Only commit and push if there are actual changes
+          if ! git diff --cached --quiet; then
+            git commit -m "📦 Add consolidated puredns results for workflow run"
+            MAX_ATTEMPTS=5
+            ATTEMPT_NUM=1
+            SUCCESS=false
+            while [ $ATTEMPT_NUM -le $MAX_ATTEMPTS ]; do
+              echo "Attempt $ATTEMPT_NUM to rebase and push aggregated results..."
+              if git pull --rebase --autostash origin ${{ github.ref_name }}; then
+                if git push origin HEAD:${{ github.ref_name }}; then
+                  echo "Push successful on attempt $ATTEMPT_NUM."
+                  SUCCESS=true
+                  break
+                else
+                  echo "Push failed on attempt $ATTEMPT_NUM after rebase."
+                fi
+              else
+                echo "Pull --rebase failed on attempt $ATTEMPT_NUM."
+              fi
+              if [ $ATTEMPT_NUM -eq $MAX_ATTEMPTS ]; then exit 1; fi
+              sleep $((RANDOM % 5 + 5)) 
+              ATTEMPT_NUM=$((ATTEMPT_NUM + 1))
+            done
+            if [ "$SUCCESS" = false ]; then exit 1; fi
+          else
+            echo "No changes to aggregated results to commit."
+          fi
  
