@@ -165,7 +165,7 @@ jobs:
           OUT="results/$D/$(basename "$CHUNK").txt"
 
           echo "⇢ Bruteforce $D with $CHUNK"
-          puredns bruteforce "$CHUNK" "$D" \
+          cat $CHUNK | puredns bruteforce $D \
             -r resolvers.txt \
             --write "$OUT" --write-wildcards wildcards.txt --write-massdns massdns.txt
 
