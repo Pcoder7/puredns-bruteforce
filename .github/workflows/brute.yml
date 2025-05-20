@@ -9,6 +9,7 @@ permissions:
 env:
   LINES_PER_CHUNK: 500000
   COMBINED_WORDLIST: "best-wordlist-9996122_filter.txt"
+  GOPATH: "${{ runner.home }}/go"
 
 jobs:
   prepare_matrix:
@@ -20,6 +21,17 @@ jobs:
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
+      
+      - name: Cache Go modules and binaries
+        uses: actions/cache@v3
+        with:
+          path: |
+            ${{ env.GOPATH }}/pkg/mod
+            ~/.cache/go-build
+            ${{ env.GOPATH }}/bin
+          key: ${{ runner.os }}-go-cache-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-cache-
 
       - name: Install prerequisites
         run: |
@@ -30,19 +42,28 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.23'
 
       - name: Install massdns & PureDNS
         run: |
-          git clone https://github.com/blechschmidt/massdns.git
-          cd massdns && make && sudo make install && cd ..
-          go install github.com/d3mondev/puredns/v2@latest
-          echo "$HOME/go/bin" >> $GITHUB_PATH
+          if ! command -v massdns >/dev/null; then
+            git clone https://github.com/blechschmidt/massdns.git
+            cd massdns && make && sudo make install && cd ..
+          else
+            echo "massdns already installed"
+          fi        
+          if ! command -v puredns >/dev/null; then
+            go install github.com/d3mondev/puredns/v2@latest
+          else
+            echo "puredns already installed"
+          fi    
+          if ! command -v anew >/dev/null; then
+            go install github.com/tomnomnom/anew@latest
+          else
+            echo "anew already installed"
+          fi          
 
-      - name: Install anew
-        run: |
-          go install github.com/tomnomnom/anew@latest
-          echo "$HOME/go/bin" >> $GITHUB_PATH
+          echo "${{ env.GOPATH }}/bin" >> $GITHUB_PATH
 
       - name: Fetch wordlists
         run: |
@@ -98,11 +119,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
+      
+      - name: Restore Go cache
+        uses: actions/cache@v3
         with:
-          go-version: '1.22'
+          path: |
+            ${{ env.GOPATH }}/pkg/mod
+            ~/.cache/go-build
+            ${{ env.GOPATH }}/bin
+          key: ${{ runner.os }}-go-cache-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-cache-
 
       - name: Install massdns & PureDNS
         run: |
