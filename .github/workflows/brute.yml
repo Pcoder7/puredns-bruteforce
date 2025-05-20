@@ -29,6 +29,9 @@ jobs:
             $HOME/go/pkg/mod
             ~/.cache/go-build
             $HOME/go/bin
+            best-wordlist-9996122.txt
+            seclistes-dns-7110368.txt
+          key: wordlists-cache-v1
           key: ${{ runner.os }}-go-cache-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-cache-
@@ -63,14 +66,32 @@ jobs:
             echo "anew already installed"
           fi          
 
-          echo "${{ env.GOPATH }}/bin" >> $GITHUB_PATH
-
+          echo "$HOME/go/bin" >> $GITHUB_PATH
+      
+      - name: Cache Wordlists
+        uses: actions/cache@v3
+        with:
+          path: |
+            best-wordlist-9996122.txt
+            seclistes-dns-7110368.txt
+            resolvers.txt
+          key: wordlists-cache-v1
       - name: Fetch wordlists
         run: |
-          wget -qO best-wordlist-9996122.txt \
-            https://github.com/Pcoder7/All-In-One-DNS-Wordlist/raw/refs/heads/main/best-wordlist-9996122.txt
-          wget -qO seclistes-dns-7110368.txt \
-            https://github.com/Pcoder7/All-In-One-DNS-Wordlist/raw/refs/heads/main/seclistes-dns-7110368.txt
+          # Download only if not cached already
+          if [ ! -f best-wordlist-9996122.txt ]; then
+            wget -qO best-wordlist-9996122.txt \
+              https://github.com/Pcoder7/All-In-One-DNS-Wordlist/raw/refs/heads/main/best-wordlist-9996122.txt
+          fi
+          if [ ! -f seclistes-dns-7110368.txt ]; then
+            wget -qO seclistes-dns-7110368.txt \
+              https://github.com/Pcoder7/All-In-One-DNS-Wordlist/raw/refs/heads/main/seclistes-dns-7110368.txt
+          fi
+          if [ ! -f resolvers.txt ]; then
+              wget -qO resolvers.txt \
+              https://raw.githubusercontent.com/rix4uni/resolvers/refs/heads/main/resolvers.txt
+              echo "resolvers.txt is downloaded"
+          fi
 
       - name: Build filter_wordlist tool
         run: |
@@ -131,25 +152,18 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-cache-
 
-      - name: Install massdns & PureDNS
-        run: |
-          git clone https://github.com/blechschmidt/massdns.git
-          cd massdns && make && sudo make install && cd ..
-          go install github.com/d3mondev/puredns/v2@latest
-          echo "$HOME/go/bin" >> $GITHUB_PATH
-
       - name: Create results directory
         run: |
           D="${{ matrix.pair.domain }}"
           mkdir -p "results/$D"
-
+                  
       - name: Run PureDNS Bruteforce on chunk
         run: |
          
           D="${{ matrix.pair.domain }}"
           CHUNK="${{ matrix.pair.chunk }}"
           OUT="results/$D/$(basename "$CHUNK").txt"
-          wget https://raw.githubusercontent.com/rix4uni/resolvers/refs/heads/main/resolvers.txt
+
           echo "⇢ Bruteforce $D with $CHUNK"
           puredns bruteforce "$CHUNK" "$D" \
             -r resolvers.txt \
