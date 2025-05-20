@@ -330,9 +330,12 @@ jobs:
         run: |
           # 1) Determine and create this run’s result directory
           D=${{ matrix.pair.domain }}
+          echo $D
           D_DIR="results/${D//./_}"
+          echo "$D_DIR"
           mkdir -p "$D_DIR"
           cd "$D_DIR"
+          ls -a
       
           # 2) Make sure empty globs vanish
           shopt -s nullglob
