@@ -176,7 +176,7 @@ jobs:
             resolvers.txt 
             wildcards.txt # Initial empty wildcards file, puredns will append to it.
             massdns.txt   # Initial empty massdns file, puredns will append to it.
-          if-no-files-found: error   
+           
 
   bruteforce:
     needs: prepare_matrix
