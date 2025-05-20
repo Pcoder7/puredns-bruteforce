@@ -31,7 +31,6 @@ jobs:
             $HOME/go/bin
             best-wordlist-9996122.txt
             seclistes-dns-7110368.txt
-          key: wordlists-cache-v1
           key: ${{ runner.os }}-go-cache-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-cache-
