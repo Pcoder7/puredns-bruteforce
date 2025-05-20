@@ -166,7 +166,7 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
       
       - name: Upload chunks as artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/download-artifact@v4 
         with:
           name: puredns-assets
           path: |      
@@ -174,6 +174,7 @@ jobs:
             resolvers.txt 
             wildcards.txt # Initial empty wildcards file, puredns will append to it.
             massdns.txt   # Initial empty massdns file, puredns will append to it.
+          if-no-files-found: error   
 
   bruteforce:
     needs: prepare_matrix
@@ -234,7 +235,7 @@ jobs:
           fi          
 
       - name: Download puredns assets (chunks and resolvers)
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4 
         with:
           name: puredns-assets
           path: . # Download to the current working directory
