@@ -250,7 +250,7 @@ jobs:
         run: |
          
           DOMAIN="${{ matrix.pair.domain }}"
-          CHUNK_FILE="${{ matrix.pair.chunk_file }}" # Using the updated matrix key
+          CHUNK_FILE="${{ matrix.pair.chunk }}" # Using the updated matrix key
           CHUNK_PATH="chunks/$CHUNK_FILE" # Reconstruct full path to chunk
 
           # Verify files downloaded correctly
