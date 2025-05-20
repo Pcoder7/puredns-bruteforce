@@ -157,35 +157,78 @@ jobs:
           echo "Ensuring placeholder files for artifact exist..."
           touch wildcards.txt massdns.txt # Create empty files if they don't exist
 
-      - name: Build matrix JSON
+     
+      - name: Build matrix JSON and define outputs
         id: set_matrix
         run: |
           if [ ! -f domains.txt ]; then
             echo "Error: domains.txt not found!"
             exit 1
           fi
-          # Ensure domains.txt is not empty and jq is installed
-          
-          # ... (existing logic to create full_matrix_jq) ...
+          echo "Contents of domains.txt:"
+          cat domains.txt
+          echo "---"
 
-          unique_domains_for_agg_jq=$(echo "$full_matrix_jq" | jq 'map(.domain) | unique | map(select(. != null and . != ""))')
+          echo "Listing files in chunks/ directory:"
+          ls -lA chunks/
+          echo "---"
+          
+          doms_raw=$(grep -E '\S' domains.txt)
+          echo "Debug: Raw domains from grep: '$doms_raw'"
+          doms_jq_array=$(echo "$doms_raw" | jq -R -s -c 'split("\n") | map(select(length > 0))') # Safer map(select)
+          echo "Debug: doms_jq_array is: $doms_jq_array"
+
+          chunks_raw=$(ls chunks)
+          echo "Debug: Raw chunks from ls: '$chunks_raw'"
+          chunks_jq_array=$(echo "$chunks_raw" | jq -R -s -c 'split("\n") | map(select(length > 0))') # Safer map(select)
+          echo "Debug: chunks_jq_array is: $chunks_jq_array"
+
+          if [[ -z "$doms_jq_array" || "$doms_jq_array" == "[]" || -z "$chunks_jq_array" || "$chunks_jq_array" == "[]" ]]; then
+            echo "Warning: Either domains or chunks array is empty or invalid. Matrix will likely be empty."
+            # Decide if this should be an error:
+            # exit 1
+          fi
+
+          full_matrix_jq=$(jq -n --argjson D "$doms_jq_array" --argjson C "$chunks_jq_array" \
+            '[ $D[] as $d | $C[] as $c | {domain:$d,chunk:"chunks/\($c)"} ]' 2>/tmp/jq_error.log || true)
+          
+          if [ -s /tmp/jq_error.log ]; then
+            echo "JQ error for full_matrix_jq:"
+            cat /tmp/jq_error.log
+          fi
+          echo "Debug: full_matrix_jq is: $full_matrix_jq"
+
+          # Crucial check: if full_matrix_jq is empty or not valid JSON, this is the problem
+          if [[ -z "$full_matrix_jq" || "$full_matrix_jq" == "null" ]]; then
+            echo "Error: full_matrix_jq is empty or null. Cannot set matrix output."
+            # To ensure fromJson doesn't get an empty string, output an empty JSON array string explicitly
+            full_matrix_jq="[]" 
+            echo "Setting full_matrix_jq to '[]' to avoid fromJson error, but this indicates a problem upstream."
+            # Consider exiting with error: exit 1
+          fi
+          
+          echo "matrix<<EOF" >> $GITHUB_OUTPUT
+          echo "$full_matrix_jq" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+          # ... (rest of the script for unique_domains_json and all_chunk_basenames_json)
+          # Make sure to also handle if full_matrix_jq is "[]" for these:
+          if [[ "$full_matrix_jq" == "[]" ]]; then
+            unique_domains_for_agg_jq="[]"
+            # chunks_jq_array would already be set
+          else
+            unique_domains_for_agg_jq=$(echo "$full_matrix_jq" | jq 'map(.domain) | unique | map(select(. != null and . != ""))')
+          fi
+          echo "Debug: unique_domains_for_agg_jq is: $unique_domains_for_agg_jq"
+
 
           echo "unique_domains_json<<EOF" >> $GITHUB_OUTPUT
           echo "$unique_domains_for_agg_jq" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
           echo "all_chunk_basenames_json<<EOF" >> $GITHUB_OUTPUT
-          echo "$chunks_jq_array" >> $GITHUB_OUTPUT # chunks_jq_array was already defined
+          echo "$chunks_jq_array" >> $GITHUB_OUTPUT # This should be fine as it's directly from ls
           echo "EOF" >> $GITHUB_OUTPUT
-   
-          #doms=$(grep -E '\S' domains.txt | jq -R -s -c 'split("\n")[:-1]')
-          #chs=$(ls chunks | jq -R -s -c 'split("\n")[:-1]')
-          #matrix=$(jq -n --argjson D "$doms" --argjson C "$chs" \
-           # '[ $D[] as $d | $C[] as $c | {domain:$d,chunk:"chunks/\($c)"} ]')
-          # Use multi-line output for GitHub Actions
-          #echo "matrix<<EOF" >> $GITHUB_OUTPUT
-          #echo "$matrix" >> $GITHUB_OUTPUT
-          #echo "EOF" >> $GITHUB_OUTPUT
       
       - name: Upload chunks as artifact
         uses: actions/upload-artifact@v4 
