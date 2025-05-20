@@ -251,7 +251,7 @@ jobs:
          
           DOMAIN="${{ matrix.pair.domain }}"
           CHUNK_FILE="${{ matrix.pair.chunk }}" # Using the updated matrix key
-          CHUNK_PATH="$CHUNK_FILE" # Reconstruct full path to chunk
+          
 
           # Verify files downloaded correctly
           if [ ! -d "chunks" ]; then
@@ -259,8 +259,8 @@ jobs:
             ls -A . # List current directory contents
             exit 1
           fi
-          if [ ! -f "$CHUNK_PATH" ]; then
-            echo "Error: Chunk file '$CHUNK_PATH' not found after artifact download!"
+          if [ ! -f "$CHUNK_FILE" ]; then
+            echo "Error: Chunk file '$CHUNK_FILE' not found after artifact download!"
             ls -A chunks/ # List chunks directory contents
             exit 1
           fi
@@ -273,31 +273,31 @@ jobs:
           # Sanitize domain for use in output file names if needed
           D_FILENAME=$(echo "$DOMAIN" | tr '.' '_')
           OUT_DIR="results/$D_FILENAME"
-          OUT_FILE="$OUT_DIR/results_$(basename "$CHUNK_FILE").txt"
+          
           # These output files are specific to puredns's operation here
-          WILDCARDS_OUT_FILE="$OUT_DIR/wildcards_$(basename "$CHUNK_FILE").txt"
-          MASSDNS_OUT_FILE="$OUT_DIR/massdns_$(basename "$CHUNK_FILE").f "best-wordlist-9996122.txt" ]; then
-                echo "Warning: $COMBINED_WORDLIST (filtered) not found. Using raw best-wordlist-9996122.txt as $COMBINED_WORDLIST for splitting."
-                cp best-wordlist-9996122.txt "$COMBINED_WORDLIST" # This creates the _filter.txt file from the raw one
-            elif [ ! -f "$COMBINED_WORDLIST" ]; then
-                echo "Error: $COMBINED_WORDLIST cannot be found or created. Ensure best-wordlist-9996122.txt exists if filter_wordlist is not used."
-                exit 1
-            fi
-          fi   # Make massdns file unique per chunk/domain
+          # Make massdns file unique per chunk/domain
+          mkdir -p "$OUT_DIR" # Ensure output directory exists
 
-          echo "⇢ Bruteforcing $DOMAIN with $CHUNK_PATH"
+          # Correctly derive basename from CHUNK_PATH
+          CHUNK_BASENAME=$(basename "$CHUNK_PATH")
+
+          OUT_FILE="$OUT_DIR/results_${CHUNK_BASENAME}.txt"
+          # Corrected definitions for WILDCARDS_FILE and MASSDNS_FILE:
+          WILDCARDS_FILE="$OUT_DIR/wildcards_${CHUNK_BASENAME}.txt"
+          MASSDNS_FILE="$OUT_DIR/massdns_${CHUNK_BASENAME}.txt"
+          echo "⇢ Bruteforcing $DOMAIN with $CHUNK_FILE"
           echo "Outputting results to $OUT_FILE"
           
           # The puredns command itself. User requested not to change this.
           # Ensure the output files are correctly handled.
           # puredns will create these files.
-          cat "$CHUNK_PATH" | puredns bruteforce "$DOMAIN" \
+          cat "$CHUNK_FILE" | puredns bruteforce "$DOMAIN" \
             -r resolvers.txt \
             --write "$OUT_FILE" \
             --write-wildcards "$WILDCARDS_FILE" \
             --write-massdns "$MASSDNS_FILE"
           
-          echo "Puredns scan complete for $DOMAIN with $CHUNK_PATH."
+          echo "Puredns scan complete for $DOMAIN with $CHUNK_FILE."
           echo "Results are in $OUT_FILE"
           if [ -f "$WILDCARDS_FILE" ]; then echo "Wildcards in $WILDCARDS_FILE"; fi
           if [ -f "$MASSDNS_FILE" ]; then echo "MassDNS formatted output in $MASSDNS_FILE"; fi
