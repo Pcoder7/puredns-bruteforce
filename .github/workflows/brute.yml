@@ -76,6 +76,7 @@ jobs:
             seclistes-dns-7110368.txt
             resolvers.txt
           key: wordlists-cache-v1
+          
       - name: Fetch wordlists
         run: |
           # Download only if not cached already
