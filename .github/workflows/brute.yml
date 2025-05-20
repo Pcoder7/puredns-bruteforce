@@ -532,22 +532,34 @@ jobs:
               expected_chunk_result_file="$SOURCE_CHUNK_FILES_DIR/results_${each_chunk_basename}.txt"
               
               if [ -f "$expected_chunk_result_file" ]; then
-                  # Count non-empty lines to determine if valid domains were found
-                  line_count=$(grep -cvE '^\s*$' "$expected_chunk_result_file") 
-                  if [ "$line_count" -gt 0 ]; then
-                      printf "%s found %02d valid domains\n" "$each_chunk_basename" "$line_count" >> "$CHECK_FILE_FINAL_PATH"
+                  # Get the count of non-empty lines.
+                  # grep -c exits 0 if matches are found, 1 if no matches are found.
+                  # Both are valid scenarios here; we just need the count.
+                  # Other exit codes from grep would indicate an actual error.
+                  current_line_count=$(grep -cvE '^\s*$' "$expected_chunk_result_file")
+                  grep_exit_status=$?
+
+                  if [ "$grep_exit_status" -eq 0 ] || [ "$grep_exit_status" -eq 1 ]; then
+                      # Exit status 0 (match) or 1 (no match / count is 0) are expected from grep -c.
+                      # The value in current_line_count is the actual count (e.g., "0", "5").
+                      if [ "$current_line_count" -gt 0 ]; then
+                          printf "%s found %02d valid domains\n" "$each_chunk_basename" "$current_line_count" >> "$CHECK_FILE_FINAL_PATH"
+                      else
+                          # This covers cases where current_line_count is "0"
+                          printf "%s No valid domains found\n" "$each_chunk_basename" >> "$CHECK_FILE_FINAL_PATH"
+                      fi
                   else
-                      printf "%s No valid domains found\n" "$each_chunk_basename" >> "$CHECK_FILE_FINAL_PATH"
+                      # grep had a more serious error (e.g., read error, though unlikely after -f check)
+                      echo "Warning: grep encountered an error (status $grep_exit_status) on $expected_chunk_result_file for domain ${{ env.current_domain_env }}."
+                      printf "%s error processing result file\n" "$each_chunk_basename" >> "$CHECK_FILE_FINAL_PATH"
                   fi
               else
                   # This means the results_*.txt file for this chunk_basename was not found for this domain.
-                  # This could happen if a bruteforce job for a particular chunk of a domain failed,
-                  # or if puredns didn't produce an output file for some reason.
                   printf "%s result file not found for this domain\n" "$each_chunk_basename" >> "$CHECK_FILE_FINAL_PATH"
               fi
           done
           
-          if [ ! -s "$CHECK_FILE_FINAL_PATH" ]; then # if file is empty (e.g. all_chunk_basenames_json was empty)
+          if [ ! -s "$CHECK_FILE_FINAL_PATH" ]; then # if file is empty (e.g. all_chunk_basenames_json was empty or all files missing)
               echo "No chunk processing information recorded for domain ${{ env.current_domain_env }}." > "$CHECK_FILE_FINAL_PATH"
           fi
           echo "Aggregation complete for domain ${{ env.current_domain_env }}. Aggregated files are in $TARGET_AGGREGATED_DIR"
