@@ -472,7 +472,7 @@ jobs:
           fi
 
       - name: Aggregate results for domain (${{ env.current_domain_env }})
-        env:
+        
           # Ensure these are correctly set, e.g., from a matrix strategy or previous steps
           # current_domain_env: domain.com 
           # temp_files_gather_dir_env: temp_domain_files/domain_com
