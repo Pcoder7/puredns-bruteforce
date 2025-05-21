@@ -364,7 +364,8 @@ jobs:
           # puredns will create these files.
           cat "$CHUNK_FILE" | puredns bruteforce "$DOMAIN" \
             -r resolvers.txt \
-            --wildcard-tests 100
+            --wildcard-tests 100 \
+            --wildcard-batch 100000 \
             --write "$OUT_FILE" \
             --write-wildcards "$WILDCARDS_FILE" \
             --write-massdns "$MASSDNS_FILE"
