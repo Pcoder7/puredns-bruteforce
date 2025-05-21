@@ -472,7 +472,14 @@ jobs:
           fi
 
       - name: Aggregate results for domain (${{ env.current_domain_env }})
+        env:
+          # Ensure these are correctly set, e.g., from a matrix strategy or previous steps
+          # current_domain_env: domain.com 
+          # temp_files_gather_dir_env: temp_domain_files/domain_com
+          # final_repo_dir_env: results/domain_com
         run: |
+          set -e # Exit immediately if a command exits with a non-zero status.
+          set -x # Print each command before executing (for debugging, remove if too verbose).
           shopt -s nullglob # Globs expand to nothing if no match
 
           # Source directory for individual chunk files for this domain
@@ -482,11 +489,12 @@ jobs:
           # Target directory for aggregated files in the git repo
           # e.g., results/example_com
           TARGET_AGGREGATED_DIR="${{ env.final_repo_dir_env }}"      
-
           echo "Aggregating files from $SOURCE_CHUNK_FILES_DIR into $TARGET_AGGREGATED_DIR for domain ${{ env.current_domain_env }}"
+          
+          # Ensure target directory exists for all aggregated files
+          mkdir -p "$TARGET_AGGREGATED_DIR"
 
           # Aggregate results_chunk.txt
-          # Files in SOURCE_CHUNK_FILES_DIR are named like results_chunk_01.txt, results_chunk_02.txt etc.
           RESULTS_FILES=("$SOURCE_CHUNK_FILES_DIR"/results_*.txt)
           if [ ${#RESULTS_FILES[@]} -gt 0 ]; then
             echo "Found ${#RESULTS_FILES[@]} results files to aggregate."
@@ -520,47 +528,76 @@ jobs:
           CHECK_FILE_FINAL_PATH="$TARGET_AGGREGATED_DIR/check_chunk.txt"
           >"$CHECK_FILE_FINAL_PATH" # Create/clear the final check file
           
-          # Using 'all_chunk_basenames_json' output from 'prepare_matrix' job
           ALL_CHUNK_BASENAMES_JSON='${{ needs.prepare_matrix.outputs.all_chunk_basenames_json }}'
           
           echo "Generating $CHECK_FILE_FINAL_PATH for domain ${{ env.current_domain_env }} using all_chunk_basenames_json: $ALL_CHUNK_BASENAMES_JSON"
 
-          # Iterate over all possible chunk basenames defined in prepare_matrix
-          echo "$ALL_CHUNK_BASENAMES_JSON" | jq -r '.[]' | while IFS= read -r each_chunk_basename; do
-              # each_chunk_basename is like "chunk_01", "chunk_02"
-              # Check for the existence of the corresponding result file for *this domain* and *this chunk*
-              expected_chunk_result_file="$SOURCE_CHUNK_FILES_DIR/results_${each_chunk_basename}.txt"
-              
-              if [ -f "$expected_chunk_result_file" ]; then
-                  # Get the count of non-empty lines.
-                  # grep -c exits 0 if matches are found, 1 if no matches are found.
-                  # Both are valid scenarios here; we just need the count.
-                  # Other exit codes from grep would indicate an actual error.
-                  current_line_count=$(grep -cvE '^\s*$' "$expected_chunk_result_file")
-                  grep_exit_status=$?
+          # Check if ALL_CHUNK_BASENAMES_JSON is empty or effectively empty before attempting to parse with jq
+          if [ -z "$ALL_CHUNK_BASENAMES_JSON" ] || [ "$ALL_CHUNK_BASENAMES_JSON" = "null" ] || [ "$ALL_CHUNK_BASENAMES_JSON" = "[]" ]; then
+              echo "Warning: ALL_CHUNK_BASENAMES_JSON is empty or invalid ('$ALL_CHUNK_BASENAMES_JSON'). No chunk basenames to process for check_chunk.txt."
+              echo "No chunk basenames provided or JSON was empty for domain ${{ env.current_domain_env }}." > "$CHECK_FILE_FINAL_PATH"
+          else
+              # Safely handle potential jq errors
+              jq_processed_chunks=""
+              jq_exit_status=0
+              set +e # Temporarily disable exit on error for jq
+              jq_processed_chunks=$(echo "$ALL_CHUNK_BASENAMES_JSON" | jq -r '.[]')
+              jq_exit_status=$?
+              set -e # Re-enable exit on error
 
-                  if [ "$grep_exit_status" -eq 0 ] || [ "$grep_exit_status" -eq 1 ]; then
-                      # Exit status 0 (match) or 1 (no match / count is 0) are expected from grep -c.
-                      # The value in current_line_count is the actual count (e.g., "0", "5").
-                      if [ "$current_line_count" -gt 0 ]; then
-                          printf "%s found %02d valid domains\n" "$each_chunk_basename" "$current_line_count" >> "$CHECK_FILE_FINAL_PATH"
-                      else
-                          # This covers cases where current_line_count is "0"
-                          printf "%s No valid domains found\n" "$each_chunk_basename" >> "$CHECK_FILE_FINAL_PATH"
-                      fi
-                  else
-                      # grep had a more serious error (e.g., read error, though unlikely after -f check)
-                      echo "Warning: grep encountered an error (status $grep_exit_status) on $expected_chunk_result_file for domain ${{ env.current_domain_env }}."
-                      printf "%s error processing result file\n" "$each_chunk_basename" >> "$CHECK_FILE_FINAL_PATH"
-                  fi
+              if [ $jq_exit_status -ne 0 ]; then
+                  echo "Error: jq failed to parse ALL_CHUNK_BASENAMES_JSON (exit status $jq_exit_status). Content: $ALL_CHUNK_BASENAMES_JSON"
+                  echo "Error parsing chunk basenames from JSON for domain ${{ env.current_domain_env }}." > "$CHECK_FILE_FINAL_PATH"
+                  # Consider exiting if this is a critical failure: exit 1
+              elif [ -z "$jq_processed_chunks" ]; then
+                  # This handles cases like `ALL_CHUNK_BASENAMES_JSON` being an empty array `[]`
+                  echo "Warning: jq processed ALL_CHUNK_BASENAMES_JSON but resulted in empty output (JSON might be '[]'). Content: $ALL_CHUNK_BASENAMES_JSON"
+                  echo "No chunk basenames extracted after jq processing for domain ${{ env.current_domain_env }}." > "$CHECK_FILE_FINAL_PATH"
               else
-                  # This means the results_*.txt file for this chunk_basename was not found for this domain.
-                  printf "%s result file not found for this domain\n" "$each_chunk_basename" >> "$CHECK_FILE_FINAL_PATH"
+                  # Iterate over all possible chunk basenames defined in prepare_matrix
+                  echo "$jq_processed_chunks" | while IFS= read -r each_chunk_basename; do
+                      # each_chunk_basename is like "chunk_01", "chunk_02"
+                      expected_chunk_result_file="$SOURCE_CHUNK_FILES_DIR/results_${each_chunk_basename}.txt"
+                      
+                      if [ -f "$expected_chunk_result_file" ]; then
+                          current_line_count=""
+                          grep_exit_status=0 # Initialize
+
+                          set +e # Temporarily disable exit on error for this specific grep command
+                          # grep -cvE '^\s*$' counts lines that are NOT empty or whitespace-only.
+                          # stderr is redirected to /dev/null to prevent grep's own error messages (e.g., for binary files)
+                          # from cluttering the log, as we handle its exit status explicitly.
+                          current_line_count=$(grep -cvE '^\s*$' "$expected_chunk_result_file" 2>/dev/null)
+                          grep_exit_status=$? # Capture the true exit status of grep
+                          set -e # Re-enable exit on error for subsequent commands
+
+                          if [ "$grep_exit_status" -eq 0 ]; then
+                              # grep succeeded, and found matches (i.e., non-empty/non-whitespace lines).
+                              # current_line_count holds the count of such lines (will be > 0).
+                              printf "%s found %02d valid domains\n" "$each_chunk_basename" "$current_line_count" >> "$CHECK_FILE_FINAL_PATH"
+                          elif [ "$grep_exit_status" -eq 1 ]; then
+                              # grep succeeded, but found no matches (i.e., file was empty or all lines were whitespace).
+                              # current_line_count from `grep -c` will be "0".
+                              printf "%s No valid domains found\n" "$each_chunk_basename" >> "$CHECK_FILE_FINAL_PATH"
+                          else
+                              # grep had a more serious error (e.g., read error, file is a directory, invalid option).
+                              # grep_exit_status will be > 1.
+                              echo "Warning: grep encountered an error (status $grep_exit_status) on $expected_chunk_result_file for domain ${{ env.current_domain_env }}."
+                              printf "%s error processing result file (grep status %s)\n" "$each_chunk_basename" "$grep_exit_status" >> "$CHECK_FILE_FINAL_PATH"
+                          fi
+                      else
+                          # This means the results_*.txt file for this chunk_basename was not found for this domain.
+                          printf "%s result file not found for this domain\n" "$each_chunk_basename" >> "$CHECK_FILE_FINAL_PATH"
+                      fi
+                  done
               fi
-          done
+          fi
           
-          if [ ! -s "$CHECK_FILE_FINAL_PATH" ]; then # if file is empty (e.g. all_chunk_basenames_json was empty or all files missing)
-              echo "No chunk processing information recorded for domain ${{ env.current_domain_env }}." > "$CHECK_FILE_FINAL_PATH"
+          # If CHECK_FILE_FINAL_PATH is still empty after all processing (e.g., jq_processed_chunks was empty or loop produced no output)
+          # Note: The file is created empty at the start ('>"$CHECK_FILE_FINAL_PATH"').
+          # This checks if it *remained* empty.
+          if [ -f "$CHECK_FILE_FINAL_PATH" ] && [ ! -s "$CHECK_FILE_FINAL_PATH" ]; then 
+              echo "No chunk processing information was recorded in $CHECK_FILE_FINAL_PATH for domain ${{ env.current_domain_env }} (file is empty after processing attempts)." > "$CHECK_FILE_FINAL_PATH"
           fi
           echo "Aggregation complete for domain ${{ env.current_domain_env }}. Aggregated files are in $TARGET_AGGREGATED_DIR"
 
