@@ -75,7 +75,8 @@ jobs:
             best-wordlist-9996122.txt
             seclistes-dns-7110368.txt
             resolvers.txt
-          key: wordlists-cache-v2-${{ hashFiles('best-wordlist-9996122.txt', 'seclistes-dns-7110368.txt', 'resolvers.txt') }} # More specific cache key
+            resolvers-trusted.txt
+          key: wordlists-cache-v2-${{ hashFiles('best-wordlist-9996122.txt', 'seclistes-dns-7110368.txt', 'resolvers.txt', 'resolvers-trusted.txt') }} # More specific cache key
           restore-keys: |
             wordlists-cache-v2-
           
@@ -95,6 +96,11 @@ jobs:
               https://raw.githubusercontent.com/rix4uni/resolvers/refs/heads/main/resolvers.txt
               echo "resolvers.txt is downloaded"
           fi
+          if [ ! -f resolvers-trusted ]; then
+              wget -qO resolvers-trusted.txt \
+              https://raw.githubusercontent.com/and0x00/resolvers.txt/refs/heads/main/resolvers.txt
+              echo "resolvers-trusted.txt is downloaded"
+          fi          
 
       - name: Build filter_wordlist tool
         run: |
@@ -364,7 +370,8 @@ jobs:
           # puredns will create these files.
           cat "$CHUNK_FILE" | puredns bruteforce "$DOMAIN" \
             -r resolvers.txt \
-            --wildcard-tests 100 \
+            --resolvers-trusted resolvers-trusted.txt \
+            --wildcard-tests 50 \
             --wildcard-batch 100000 \
             --write "$OUT_FILE" \
             --write-wildcards "$WILDCARDS_FILE" \
