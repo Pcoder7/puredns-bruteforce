@@ -414,9 +414,9 @@ jobs:
           # temp_files_gather_dir_env: temp_domain_files/domain_com
           # final_repo_dir_env: results/domain_com
         run: |
-          set -e # Exit immediately if a command exits with a non-zero status.
-          set -x # Print each command before executing (for debugging, remove if too verbose).
-          shopt -s nullglob # Globs expand to nothing if no match
+          # set -e # Exit immediately if a command exits with a non-zero status.
+          # set -x # Print each command before executing (for debugging, remove if too verbose).
+          # shopt -s nullglob # Globs expand to nothing if no match
 
           # Source directory for individual chunk files for this domain
           # e.g., temp_domain_files/example_com
