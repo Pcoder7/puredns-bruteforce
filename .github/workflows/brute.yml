@@ -245,6 +245,7 @@ jobs:
             resolvers.txt 
             wildcards.txt # Initial empty wildcards file, puredns will append to it.
             massdns.txt   # Initial empty massdns file, puredns will append to it.
+            resolvers-trusted.txt
            
 
   bruteforce:
