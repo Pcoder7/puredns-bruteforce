@@ -413,6 +413,7 @@ jobs:
           # current_domain_env: domain.com 
           # temp_files_gather_dir_env: temp_domain_files/domain_com
           # final_repo_dir_env: results/domain_com
+        shell: bash          
         run: |
           # set -e # Exit immediately if a command exits with a non-zero status.
           # set -x # Print each command before executing (for debugging, remove if too verbose).
