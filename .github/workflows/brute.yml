@@ -211,6 +211,7 @@ jobs:
             wildcards.txt # Initial empty wildcards file, puredns will append to it.
             massdns.txt   # Initial empty massdns file, puredns will append to it.
             resolvers-trusted.txt
+          retention-days: 1  
            
 
   bruteforce:
@@ -320,7 +321,7 @@ jobs:
             ${{ env.TEMP_OUT_DIR_FOR_ARTIFACT }}/results_${{ env.CHUNK_BASENAME_FOR_ARTIFACT }}.txt
             ${{ env.TEMP_OUT_DIR_FOR_ARTIFACT }}/wildcards_${{ env.CHUNK_BASENAME_FOR_ARTIFACT }}.txt
             ${{ env.TEMP_OUT_DIR_FOR_ARTIFACT }}/massdns_${{ env.CHUNK_BASENAME_FOR_ARTIFACT }}.txt
-
+          retention-days: 1 
           
 
   aggregate_results:
