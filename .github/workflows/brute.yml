@@ -96,7 +96,7 @@ jobs:
               https://raw.githubusercontent.com/rix4uni/resolvers/refs/heads/main/resolvers.txt
               echo "resolvers.txt is downloaded"
           fi
-          if [ ! -f resolvers-trusted ]; then
+          if [ ! -f resolvers-trusted.txt ]; then
               wget -qO resolvers-trusted.txt \
               https://raw.githubusercontent.com/and0x00/resolvers.txt/refs/heads/main/resolvers.txt
               echo "resolvers-trusted.txt is downloaded"
