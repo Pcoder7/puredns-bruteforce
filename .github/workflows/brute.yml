@@ -14,6 +14,13 @@ env:
 jobs:
   prepare_matrix:
     runs-on: ubuntu-latest
+    
+    container:
+      image: ghcr.io/pcoder7/spider-puredns-actions:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GHCR_TOKEN }}    
+
     outputs:
       matrix: ${{ steps.set_matrix.outputs.matrix }}
       unique_domains_json: ${{ steps.set_matrix.outputs.unique_domains_json }}
@@ -24,48 +31,6 @@ jobs:
         with:
           fetch-depth: 0
       
-      - name: Cache Go modules and binaries
-        uses: actions/cache@v3
-        with:
-          path: |
-            $HOME/go/pkg/mod
-            ~/.cache/go-build
-            $HOME/go/bin
-          key: ${{ runner.os }}-go-cache-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-cache-
-
-      - name: Install prerequisites
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y git make gcc dos2unix jq
-          # go is provided by setup-go
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.22'
-
-      - name: Install massdns & PureDNS
-        run: |
-          if ! command -v massdns >/dev/null; then
-            git clone https://github.com/blechschmidt/massdns.git
-            cd massdns && make && sudo make install && cd ..
-          else
-            echo "massdns already installed"
-          fi        
-          if ! command -v puredns >/dev/null; then
-            go install github.com/d3mondev/puredns/v2@latest
-          else
-            echo "puredns already installed"
-          fi    
-          if ! command -v anew >/dev/null; then
-            go install github.com/tomnomnom/anew@latest
-          else
-            echo "anew already installed"
-          fi          
-
-          echo "$HOME/go/bin" >> $GITHUB_PATH
       
       - name: Cache Wordlists
         uses: actions/cache@v3
@@ -251,6 +216,12 @@ jobs:
   bruteforce:
     needs: prepare_matrix
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/pcoder7/spider-puredns-actions:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GHCR_TOKEN }}    
+            
     strategy:
       max-parallel: 20   
       fail-fast: false
@@ -260,61 +231,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
-      - name: Setup Go # <-- ADD THIS STEP
-        id: setup-go 
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.22' # Or your desired Go version        
-      
-      - name: Restore Go cache
-        uses: actions/cache@v3
-        with:
-          path: |
-            $HOME/go/pkg/mod
-            ~/.cache/go-build
-            $HOME/go/bin
-            filter_wordlist
-          #key: ${{ runner.os }}-go-cache-${{ hashFiles('**/go.sum') }}
-          
-          key: ${{ runner.os }}-go-${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('filter_wordlist.go') }}
-          restore-keys: |
-           ${{ runner.os }}-go-${{ steps.setup-go.outputs.go-version }}-
-           # ${{ runner.os }}-go-cache-
-            
+              
       - name: Add Go bin to PATH
         run: echo "${{ env.HOME }}/go/bin" >> $GITHUB_PATH
         
-      - name: Install prerequisites for massdns
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y git make gcc
-
-      - name: Install massdns
-        run: |
-          if ! command -v massdns >/dev/null; then
-            echo "massdns not found, installing..."
-            git clone https://github.com/blechschmidt/massdns.git
-            cd massdns
-            make -j$(nproc)
-            sudo make install
-            cd ..
-            rm -rf massdns
-          else
-            echo "massdns already installed or cached."
-          fi
-          # Verify puredns is available (from cache or needs install if cache failed)
-          if ! command -v puredns >/dev/null; then
-            echo "puredns not found in PATH after cache restore. Installing..."
-            go install github.com/d3mondev/puredns/v2@latest
-          else
-            echo "puredns is available."
-          fi
-          if ! command -v anew >/dev/null; then
-            echo "anew not found in PATH after cache restore. Installing..."   
-            go install github.com/tomnomnom/anew@latest
-          else
-            echo "anew already installed"
-          fi          
+   
 
       - name: Download puredns assets (chunks and resolvers)
         uses: actions/download-artifact@v4 
@@ -369,6 +290,7 @@ jobs:
           # The puredns command itself. User requested not to change this.
           # Ensure the output files are correctly handled.
           # puredns will create these files.
+
           cat "$CHUNK_FILE" | puredns bruteforce "$DOMAIN" \
             -r resolvers.txt \
             --resolvers-trusted resolvers-trusted.txt \
@@ -404,6 +326,12 @@ jobs:
   aggregate_results:
     needs: [prepare_matrix, bruteforce] # Depends on both previous jobs
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/pcoder7/spider-puredns-actions:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GHCR_TOKEN }}   
+            
     strategy:
       fail-fast: false
       matrix:
@@ -415,9 +343,6 @@ jobs:
         uses: actions/checkout@v3
         with:
           fetch-depth: 0 # Need full history for rebase
-
-      - name: Install JQ
-        run: sudo apt-get update -qq && sudo apt-get install -y jq
 
       - name: Prepare directories and define key variables
         id: prep_vars
@@ -574,29 +499,39 @@ jobs:
                           grep_exit_status=0 # Initialize
 
                           set +e # Temporarily disable exit on error for this specific grep command
+                          
                           # grep -cvE '^\s*$' counts lines that are NOT empty or whitespace-only.
+                          
                           # stderr is redirected to /dev/null to prevent grep's own error messages (e.g., for binary files)
+                          
                           # from cluttering the log, as we handle its exit status explicitly.
+
                           current_line_count=$(grep -cvE '^\s*$' "$expected_chunk_result_file" 2>/dev/null)
                           grep_exit_status=$? # Capture the true exit status of grep
                           set -e # Re-enable exit on error for subsequent commands
 
                           if [ "$grep_exit_status" -eq 0 ]; then
                               # grep succeeded, and found matches (i.e., non-empty/non-whitespace lines).
+                            
                               # current_line_count holds the count of such lines (will be > 0).
+                             
                               printf "%s found %02d valid domains\n" "$each_chunk_basename" "$current_line_count" >> "$CHECK_FILE_FINAL_PATH"
                           elif [ "$grep_exit_status" -eq 1 ]; then
                               # grep succeeded, but found no matches (i.e., file was empty or all lines were whitespace).
+                             
                               # current_line_count from `grep -c` will be "0".
+                             
                               printf "%s No valid domains found\n" "$each_chunk_basename" >> "$CHECK_FILE_FINAL_PATH"
                           else
                               # grep had a more serious error (e.g., read error, file is a directory, invalid option).
                               # grep_exit_status will be > 1.
+                             
                               echo "Warning: grep encountered an error (status $grep_exit_status) on $expected_chunk_result_file for domain ${{ env.current_domain_env }}."
                               printf "%s error processing result file (grep status %s)\n" "$each_chunk_basename" "$grep_exit_status" >> "$CHECK_FILE_FINAL_PATH"
                           fi
                       else
                           # This means the results_*.txt file for this chunk_basename was not found for this domain.
+                          
                           printf "%s result file not found for this domain\n" "$each_chunk_basename" >> "$CHECK_FILE_FINAL_PATH"
                       fi
                   done
@@ -606,6 +541,7 @@ jobs:
           # If CHECK_FILE_FINAL_PATH is still empty after all processing (e.g., jq_processed_chunks was empty or loop produced no output)
           # Note: The file is created empty at the start ('>"$CHECK_FILE_FINAL_PATH"').
           # This checks if it *remained* empty.
+          
           if [ -f "$CHECK_FILE_FINAL_PATH" ] && [ ! -s "$CHECK_FILE_FINAL_PATH" ]; then 
               echo "No chunk processing information was recorded in $CHECK_FILE_FINAL_PATH for domain ${{ env.current_domain_env }} (file is empty after processing attempts)." > "$CHECK_FILE_FINAL_PATH"
           fi
