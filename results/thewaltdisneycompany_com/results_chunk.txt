@@ -1,0 +1,15 @@
+app.dev.thewaltdisneycompany.com
+app.qa.thewaltdisneycompany.com
+cdn.origin.thewaltdisneycompany.com
+emea.thewaltdisneycompany.com
+investors.thewaltdisneycompany.com
+privacy.thewaltdisneycompany.com
+privacychoices-perf.thewaltdisneycompany.com
+privacychoices-qa.thewaltdisneycompany.com
+privacychoices-stage.thewaltdisneycompany.com
+privacychoices.thewaltdisneycompany.com
+secure.cdn.thewaltdisneycompany.com
+zendesk1.thewaltdisneycompany.com
+zendesk2.thewaltdisneycompany.com
+zendesk3.thewaltdisneycompany.com
+zendesk4.thewaltdisneycompany.com
