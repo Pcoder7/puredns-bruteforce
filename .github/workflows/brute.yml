@@ -550,7 +550,11 @@ jobs:
           echo "Aggregation complete for domain ${{ env.current_domain_env }}. Aggregated files are in $TARGET_AGGREGATED_DIR"
 
       - name: Commit and push aggregated results for domain (${{ env.current_domain_env }})
+        shell: bash
         run: |
+          
+          git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+          
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
           
