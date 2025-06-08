@@ -7,7 +7,7 @@ permissions:
   contents: write
 
 env:
-  LINES_PER_CHUNK: 3000
+  LINES_PER_CHUNK: 6000
   #COMBINED_WORDLIST: "best-wordlist-9996122_filter.txt"
   COMBINED_WORDLIST: "navy_mil.txt"
  
@@ -297,6 +297,8 @@ jobs:
           cat "$CHUNK_FILE" | puredns bruteforce "$DOMAIN" \
             -r resolvers.txt \
             --resolvers-trusted resolvers-trusted.txt \
+            --rate-limit 3000 \
+            --quiet \
             --wildcard-tests 50 \
             --wildcard-batch 100000 \
             --write "$OUT_FILE" \
