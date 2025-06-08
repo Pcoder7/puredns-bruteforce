@@ -7,9 +7,9 @@ permissions:
   contents: write
 
 env:
-  LINES_PER_CHUNK: 6000
-  #COMBINED_WORDLIST: "best-wordlist-9996122_filter.txt"
-  COMBINED_WORDLIST: "navy_mil.txt"
+  LINES_PER_CHUNK: 500000
+  COMBINED_WORDLIST: "best-wordlist-9996122_filter.txt"
+  #COMBINED_WORDLIST: "navy_mil.txt"
  
 
 jobs:
@@ -103,8 +103,8 @@ jobs:
               echo "filter_wordlist tool not found—using raw wordlists."
               if [ ! -f "$COMBINED_WORDLIST" ] && [ -f "best-wordlist-9996122.txt" ]; then
                 echo "Warning: $COMBINED_WORDLIST missing. Copying raw wordlist."
-                #cp best-wordlist-9996122.txt "$COMBINED_WORDLIST"
-                cp navy_mil.txt "$COMBINED_WORDLIST"
+                cp best-wordlist-9996122.txt "$COMBINED_WORDLIST"
+                #cp navy_mil.txt "$COMBINED_WORDLIST"
               elif [ ! -f "$COMBINED_WORDLIST" ]; then
                 echo "Error: $COMBINED_WORDLIST cannot be found or created."
                 exit 1
