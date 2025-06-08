@@ -1,4 +1,5 @@
 allhands.navy.mil
+anyservicemember.navy.mil
 applocker.navy.mil
 atc.navy.mil
 autodiscover.navy.mil
@@ -28,6 +29,7 @@ essims.navy.mil
 ethics.navy.mil
 etims.navy.mil
 fccnaosnprod.navy.mil
+ffsp.navy.mil
 fltmps.navy.mil
 foia.navy.mil
 forcenet.navy.mil
@@ -40,6 +42,7 @@ grgb.navy.mil
 history.navy.mil
 housing.navy.mil
 hq.navy.mil
+hrnm.navy.mil
 httds.navy.mil
 httdstest.navy.mil
 identity.navy.mil
@@ -49,9 +52,9 @@ ipdm.navy.mil
 ipv6.navy.mil
 iwscomm.navy.mil
 jag.navy.mil
-jfac.navy.mil
 law.navy.mil
 localhost.navy.mil
+login.navy.mil
 metoc.navy.mil
 mgtis.navy.mil
 mnp.navy.mil
@@ -80,7 +83,6 @@ navyfamily.navy.mil
 navymobilenews.navy.mil
 navytechtransfer.navy.mil
 ncmo.navy.mil
-ncss.navy.mil
 near.navy.mil
 netcsn.navy.mil
 njis.navy.mil
@@ -104,6 +106,7 @@ oix.navy.mil
 onrcamis.navy.mil
 onrcs.navy.mil
 onrextranet.navy.mil
+onrharmis.navy.mil
 onrmysite.navy.mil
 onrnavris.navy.mil
 onroutside.navy.mil
@@ -148,7 +151,6 @@ techsolutions.navy.mil
 tips.navy.mil
 vamosc.navy.mil
 weather.navy.mil
-weblog.navy.mil
 www.law.navy.mil
 www.med.navy.mil
 www.my.navy.mil
