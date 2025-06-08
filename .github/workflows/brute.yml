@@ -8,7 +8,8 @@ permissions:
 
 env:
   LINES_PER_CHUNK: 3000
-  COMBINED_WORDLIST: "best-wordlist-9996122_filter.txt"
+  #COMBINED_WORDLIST: "best-wordlist-9996122_filter.txt"
+  COMBINED_WORDLIST: "navy_mil.txt"
  
 
 jobs:
